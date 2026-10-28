@@ -55,6 +55,7 @@ class VoiceService : Service() {
     // Для онлайн книг
     private var awaitingBookNumber = false
     private var foundBooks: List<OnlineBookEngine.Book> = emptyList()
+    private var currentBookIndex = 0
 
     private var cachedNames: List<String> = emptyList()
     private var cacheTime = 0L
@@ -305,6 +306,22 @@ class VoiceService : Service() {
 
         // ========== ОЖИДАНИЕ НОМЕРА КНИГИ ==========
         if (awaitingBookNumber) {
+            val lower = text.lowercase()
+            // «дальше» / «следующая» — перейти к следующей книге
+            if (lower.contains("дальше") || lower.contains("следующ") ||
+                lower.contains("далее")) {
+                val nextIndex = currentBookIndex + 1
+                if (nextIndex < foundBooks.size) {
+                    speakBooksList(nextIndex)
+                } else {
+                    awaitingBookNumber = false
+                    tts.beepError()
+                    tts.speakOutShort("Это была последняя книга. Конец списка")
+                    handler.postDelayed({ startListening() }, 2000L)
+                }
+                return
+            }
+
             awaitingBookNumber = false
             val number = parseNumber(text)
             if (number != null && number in 1..foundBooks.size) {
@@ -314,7 +331,7 @@ class VoiceService : Service() {
                 launchPlayer(book)
             } else {
                 tts.beepError()
-                tts.speakOutShort("Не понял номер. Скажите: первая, вторая и так далее")
+                tts.speakOutShort("Не понял. Скажите номер книги, или дальше")
                 awaitingBookNumber = true
             }
             return
@@ -503,28 +520,18 @@ class VoiceService : Service() {
         Log.e("MYVOSK", "executeCommand: '$command'")
         val calendar = Calendar.getInstance()
 
-        // ========== ЖАНРЫ ==========
-        if (command.contains("жанры") || command.contains("какие жанры")) {
-            tts.speakOut("Смотрю жанры...")
-            Thread {
-                val genres = onlineBooks.getGenres()
-                handler.post {
-                    if (genres.isEmpty()) {
-                        tts.speakOut("Не удалось получить жанры")
-                    } else {
-                        tts.speakOut("Доступные жанры: ${genres.joinToString(", ")}")
-                    }
-                }
-            }.start()
-            return
-        }
-
-        // ========== ПОИСК ОНЛАЙН КНИГ ==========
+        // ========== ПОИСК ОНЛАЙН КНИГ (проверяем первым) ==========
         if (command.contains("найди онлайн") || command.contains("найти онлайн") ||
-            command.contains("поиск онлайн")) {
+            command.contains("поиск онлайн") ||
+            (command.contains("найди") && command.contains("онлайн")) ||
+            (command.contains("найти") && command.contains("онлайн")) ||
+            (command.contains("поиск") && command.contains("онлайн"))) {
             val query = command
                 .replace("найди онлайн", "").replace("найти онлайн", "")
-                .replace("поиск онлайн", "").trim()
+                .replace("поиск онлайн", "")
+                .replace("найди", "").replace("найти", "")
+                .replace("поиск", "").replace("онлайн", "")
+                .trim()
             if (query.isEmpty()) {
                 tts.speakOut("Что искать? Скажите: найди онлайн и слово")
                 return
@@ -534,13 +541,32 @@ class VoiceService : Service() {
                 val books = onlineBooks.searchBooks(query)
                 handler.post {
                     foundBooks = books
+                    currentBookIndex = 0
                     if (books.isEmpty()) {
                         tts.beepError()
                         tts.speakOut("Ничего не найдено")
+                        handler.postDelayed({ startListening() }, 2000L)
                         return@post
                     }
                     tts.speakOut("Найдено ${books.size} книг. Слушайте.")
                     speakBooksList(0)
+                }
+            }.start()
+            return
+        }
+
+        // ========== ЖАНРЫ ==========
+        if (command.contains("жанры") || command.contains("какие жанры") ||
+            command.contains("жанр")) {
+            tts.speakOut("Смотрю жанры...")
+            Thread {
+                val genres = onlineBooks.getGenres()
+                handler.post {
+                    if (genres.isEmpty()) {
+                        tts.speakOut("Не удалось получить жанры")
+                    } else {
+                        tts.speakOut("Доступные жанры: ${genres.joinToString(", ")}")
+                    }
                 }
             }.start()
             return
@@ -587,23 +613,19 @@ class VoiceService : Service() {
     // ========== ЧТЕНИЕ СПИСКА КНИГ ==========
     private fun speakBooksList(startIndex: Int) {
         if (startIndex >= foundBooks.size) {
+            awaitingBookNumber = false
             tts.speakOut("Конец списка")
+            handler.postDelayed({ startListening() }, 2000L)
             return
         }
+        currentBookIndex = startIndex
         val book = foundBooks[startIndex]
         val ordinal = ordinalWord(startIndex + 1)
         val cycleInfo = if (!book.cycle.isNullOrEmpty()) " Цикл: ${book.cycle}." else ""
         val desc = if (book.description.isNotEmpty()) " ${book.description.take(100)}." else ""
 
         awaitingBookNumber = true
-        tts.speakOut("$ordinal — ${book.title}, автор ${book.author}.$cycleInfo$desc Скажите номер книги для запуска, или 'дальше'.")
-
-        // Ждём номер
-        handler.postDelayed({
-            if (awaitingBookNumber) {
-                // Если не выбрал — можно перейти к следующей
-            }
-        }, 10000L)
+        tts.speakOut("$ordinal — ${book.title}, автор ${book.author}.$cycleInfo$desc Скажите номер книги, или дальше.")
     }
 
     private fun parseNumber(text: String): Int? {
@@ -624,12 +646,14 @@ class VoiceService : Service() {
 
     // ========== ЗАПУСК ПЛЕЕРА ==========
     private fun launchPlayer(book: OnlineBookEngine.Book) {
+        awaitingBookNumber = false
         Thread {
             val links = onlineBooks.getMp3Links(book.url)
             handler.post {
                 if (links.isEmpty()) {
                     tts.beepError()
                     tts.speakOut("Не удалось найти аудиофайлы")
+                    handler.postDelayed({ startListening() }, 2000L)
                     return@post
                 }
                 val intent = Intent(this, PlayerActivity::class.java).apply {
@@ -653,96 +677,3 @@ class VoiceService : Service() {
             return
         }
         if (contacts.size == 1) {
-            val c = contacts[0]
-            choosingContact = true
-            contactList = contacts
-            contactIndex = 0
-            tts.speakOutShort("${c.name}. Звонить?")
-            handler.postDelayed({ startListening() }, 100L)
-            tts.scheduleConfirmBeep()
-            startChoosingTimeout()
-            return
-        }
-        contactList = contacts
-        contactIndex = 0
-        choosingContact = true
-        tts.speakOutShort("Нашёл ${contacts.size}. ${ordinalWord(1)} ${contacts[0].name}. Звонить?")
-        handler.postDelayed({ startListening() }, 100L)
-        tts.scheduleConfirmBeep()
-        startChoosingTimeout()
-    }
-
-    private fun ordinalWord(n: Int): String {
-        return when (n) {
-            1 -> "Первый"; 2 -> "Второй"; 3 -> "Третий"
-            4 -> "Четвёртый"; 5 -> "Пятый"; 6 -> "Шестой"
-            7 -> "Седьмой"; 8 -> "Восьмой"; 9 -> "Девятый"
-            10 -> "Десятый"; else -> "$n-й"
-        }
-    }
-
-    private fun startWordRecording(fieldName: String) {
-        recordingFieldName = fieldName
-        recordingMode = true
-        tts.speakOut("Говорите")
-        handler.postDelayed({
-            Thread {
-                val word = vosk.recordSingleWord(5000L)
-                sendWordResult(word)
-            }.start()
-        }, 1500L)
-    }
-
-    private fun sendWordResult(text: String) {
-        handler.post {
-            val bundle = Bundle().apply {
-                putString("FIELD", recordingFieldName)
-                putString("WORD", text)
-            }
-            try { resultReceiver?.send(0, bundle) } catch (_: Exception) {}
-            recordingMode = false
-            recordingFieldName = ""
-        }
-    }
-
-    private fun acceptCall() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val tm = getSystemService(TELECOM_SERVICE) as TelecomManager
-                tm.acceptRingingCall()
-            }
-        } catch (e: Exception) { Log.e("MYVOSK", "Ошибка приёма: ${e.message}", e) }
-    }
-
-    private fun rejectCall() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                val tm = getSystemService(TELECOM_SERVICE) as TelecomManager
-                tm.endCall()
-            }
-        } catch (e: Exception) { Log.e("MYVOSK", "Ошибка отклонения: ${e.message}", e) }
-    }
-
-    private fun showNotification() {
-        val channelId = "voice_service_channel"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId, "Голосовое управление", NotificationManager.IMPORTANCE_LOW
-            )
-            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
-        }
-        val notification: Notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Помощник активен")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setOngoing(true)
-            .build()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(1, notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(1, notification)
-        }
-    }
-}
