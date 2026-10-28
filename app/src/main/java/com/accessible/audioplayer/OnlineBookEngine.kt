@@ -92,29 +92,39 @@ class OnlineBookEngine {
         try {
             val doc = fetchHtml(bookUrl) ?: return emptyList()
 
-            // 1. Ищем скрипт с инициализацией плеера: new BookPlayer(ID, [{...}])
             val scripts = doc.select("script")
+            var foundJson = false
+
             for (script in scripts) {
                 val html = script.html()
-                if (html.contains("BookPlayer")) {
-                    Log.e("MYVOSK", "Найден скрипт BookPlayer, парсим...")
-                    // Ищем все ссылки на mp3 внутри этого скрипта
-                    val matches = Regex("""https?://[^\s"'<>]+\.mp3""").findAll(html)
-                    for (match in matches) {
-                        val url = match.value.replace("\\/", "/") // убираем экранирование слэшей
-                        if (!links.contains(url)) {
-                            links.add(url)
+                if (html.contains("new BookPlayer")) {
+                    Log.e("MYVOSK", "Найден new BookPlayer, извлекаем JSON...")
+                    
+                    val pattern = Regex("""new BookPlayer\(\d+,\s*(\[.*?\])\s*[,)]""", RegexOption.DOT_MATCHES_ALL)
+                    val match = pattern.find(html)
+                    
+                    if (match != null) {
+                        val jsonArray = match.groupValues[1]
+                        val urlPattern = Regex(""""url"\s*:\s*"([^"]+)"""")
+                        val urlMatches = urlPattern.findAll(jsonArray)
+                        for (urlMatch in urlMatches) {
+                            val rawUrl = urlMatch.groupValues[1]
+                            val cleanUrl = rawUrl.replace("\\/", "/")
+                            if (cleanUrl.contains(".mp3")) {
+                                if (!links.contains(cleanUrl)) {
+                                    links.add(cleanUrl)
+                                }
+                            }
                         }
+                        foundJson = true
+                        if (links.isNotEmpty()) break
                     }
-                    if (links.isNotEmpty()) break
                 }
             }
 
-            // 2. Если вдруг не нашли в BookPlayer, ищем вообще везде (на всякий случай)
-            if (links.isEmpty()) {
-                Log.e("MYVOSK", "BookPlayer не найден, ищем по всему HTML...")
+            if (!foundJson || links.isEmpty()) {
                 val bodyHtml = doc.body()?.html() ?: ""
-                val matches = Regex("""https?://[^\s"'<>]+\.mp3""").findAll(bodyHtml)
+                val matches = Regex("""https?:\\?/\\?/[^\s"'<>]+\.mp3""").findAll(bodyHtml)
                 for (match in matches) {
                     val url = match.value.replace("\\/", "/")
                     if (!links.contains(url)) links.add(url)
@@ -123,11 +133,6 @@ class OnlineBookEngine {
 
             Log.e("MYVOSK", "✅ MP3-ссылок найдено: ${links.size}")
             for (l in links.take(3)) Log.e("MYVOSK", "  mp3: $l")
-            
-            if (links.isEmpty()) {
-                val snippet = doc.body()?.html()?.take(500)?.replace("\n", " ")
-                Log.e("MYVOSK", "DEBUG (нет mp3) body[0..500]: $snippet")
-            }
         } catch (e: Exception) {
             Log.e("MYVOSK", "Ошибка MP3: ${e.message}", e)
         }
