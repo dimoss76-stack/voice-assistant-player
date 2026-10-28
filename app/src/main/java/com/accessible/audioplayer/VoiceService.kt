@@ -30,6 +30,7 @@ class VoiceService : Service() {
     private lateinit var contactCaller: ContactCaller
     private lateinit var tts: TtsSpeaker
     private lateinit var vosk: VoskEngine
+    private lateinit var onlineBooks: OnlineBookEngine
 
     private var isActivated = false
     private var wakeLock: PowerManager.WakeLock? = null
@@ -51,6 +52,10 @@ class VoiceService : Service() {
     private var contactsReadIndex = 0
     private var stopListeningActive = false
 
+    // Для онлайн книг
+    private var awaitingBookNumber = false
+    private var foundBooks: List<OnlineBookEngine.Book> = emptyList()
+
     private var cachedNames: List<String> = emptyList()
     private var cacheTime = 0L
 
@@ -66,6 +71,7 @@ class VoiceService : Service() {
         Log.e("MYVOSK", "0. onCreate сервиса")
         settings = VoiceSettings(this)
         contactCaller = ContactCaller(this)
+        onlineBooks = OnlineBookEngine()
 
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "VoiceAssistant::WakeLock")
@@ -225,7 +231,7 @@ class VoiceService : Service() {
 
     private fun isAnyActiveMode(): Boolean {
         return choosingContact || awaitingName || awaitingAnswer ||
-               inCallMonitoring || isActivated || readingContacts
+               inCallMonitoring || isActivated || readingContacts || awaitingBookNumber
     }
 
     private fun startReadingContacts() {
@@ -288,12 +294,29 @@ class VoiceService : Service() {
     }
 
     private fun handleRecognizedText(text: String) {
-        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, choosingContact=$choosingContact, awaitingName=$awaitingName, inCall=$inCallMonitoring, reading=$readingContacts, ignore=${System.currentTimeMillis() < tts.ignoreUntil})")
+        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, choosingContact=$choosingContact, awaitingName=$awaitingName, inCall=$inCallMonitoring, reading=$readingContacts, awaitingBookNumber=$awaitingBookNumber, ignore=${System.currentTimeMillis() < tts.ignoreUntil})")
 
         if (recordingMode) return
 
         if (System.currentTimeMillis() < tts.ignoreUntil) {
             Log.e("MYVOSK", "Игнорирую (эхо TTS): '$text'")
+            return
+        }
+
+        // ========== ОЖИДАНИЕ НОМЕРА КНИГИ ==========
+        if (awaitingBookNumber) {
+            awaitingBookNumber = false
+            val number = parseNumber(text)
+            if (number != null && number in 1..foundBooks.size) {
+                val book = foundBooks[number - 1]
+                tts.beepOk()
+                tts.speakOutShort("Запускаю ${book.title}")
+                launchPlayer(book)
+            } else {
+                tts.beepError()
+                tts.speakOutShort("Не понял номер. Скажите: первая, вторая и так далее")
+                awaitingBookNumber = true
+            }
             return
         }
 
@@ -305,8 +328,6 @@ class VoiceService : Service() {
             if (isStop) {
                 Log.e("MYVOSK", "✅ Команда 'стоп' во время чтения")
                 stopReadingContacts()
-            } else {
-                Log.e("MYVOSK", "Во время чтения контактов игнорирую: '$text'")
             }
             return
         }
@@ -324,14 +345,9 @@ class VoiceService : Service() {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                             val tm = getSystemService(TELECOM_SERVICE) as TelecomManager
                             tm.endCall()
-                            Log.e("MYVOSK", "Звонок завершён")
                         }
-                    } catch (e: Exception) {
-                        Log.e("MYVOSK", "Ошибка завершения: ${e.message}", e)
-                    }
+                    } catch (e: Exception) {}
                 }, 1500L)
-            } else {
-                Log.e("MYVOSK", "В звонке, игнорирую: '$text'")
             }
             return
         }
@@ -339,12 +355,12 @@ class VoiceService : Service() {
         if (isAnyActiveMode()) {
             if (text.contains("отмена") || text.contains("отменить") ||
                 text.contains("стоп") || text.contains("хватит")) {
-                Log.e("MYVOSK", "Экстренная отмена (активный режим)")
                 choosingContact = false
                 awaitingName = false
                 awaitingAnswer = false
                 isActivated = false
                 readingContacts = false
+                awaitingBookNumber = false
                 contactList = emptyList()
                 contactIndex = 0
                 cancelSilenceTimeout()
@@ -357,7 +373,6 @@ class VoiceService : Service() {
 
         if (awaitingName) {
             cancelSilenceTimeout()
-            Log.e("MYVOSK", "Распознавание имени: '$text'")
             val nameOnly = text.split(" ").firstOrNull()?.trim() ?: text
             val commandWords = listOf(
                 "нет", "да", "отмена", "отменить", "позвони", "позвонить",
@@ -365,16 +380,9 @@ class VoiceService : Service() {
                 "завершить", "положить", "набери", "набрать",
                 "контакты", "список", "покажи"
             )
-            if (nameOnly in commandWords) {
-                Log.e("MYVOSK", "Это команда, а не имя: '$nameOnly'")
+            if (nameOnly in commandWords || nameOnly.length < 2) {
                 tts.beepError()
                 tts.speakOutShort("Назовите имя")
-                handler.postDelayed({ startListeningForName() }, 3500L)
-                return
-            }
-            if (nameOnly.length < 2) {
-                tts.beepError()
-                tts.speakOutShort("Не расслышал. Повторите")
                 handler.postDelayed({ startListeningForName() }, 3500L)
                 return
             }
@@ -495,6 +503,49 @@ class VoiceService : Service() {
         Log.e("MYVOSK", "executeCommand: '$command'")
         val calendar = Calendar.getInstance()
 
+        // ========== ЖАНРЫ ==========
+        if (command.contains("жанры") || command.contains("какие жанры")) {
+            tts.speakOut("Смотрю жанры...")
+            Thread {
+                val genres = onlineBooks.getGenres()
+                handler.post {
+                    if (genres.isEmpty()) {
+                        tts.speakOut("Не удалось получить жанры")
+                    } else {
+                        tts.speakOut("Доступные жанры: ${genres.joinToString(", ")}")
+                    }
+                }
+            }.start()
+            return
+        }
+
+        // ========== ПОИСК ОНЛАЙН КНИГ ==========
+        if (command.contains("найди онлайн") || command.contains("найти онлайн") ||
+            command.contains("поиск онлайн")) {
+            val query = command
+                .replace("найди онлайн", "").replace("найти онлайн", "")
+                .replace("поиск онлайн", "").trim()
+            if (query.isEmpty()) {
+                tts.speakOut("Что искать? Скажите: найди онлайн и слово")
+                return
+            }
+            tts.speakOut("Ищу $query...")
+            Thread {
+                val books = onlineBooks.searchBooks(query)
+                handler.post {
+                    foundBooks = books
+                    if (books.isEmpty()) {
+                        tts.beepError()
+                        tts.speakOut("Ничего не найдено")
+                        return@post
+                    }
+                    tts.speakOut("Найдено ${books.size} книг. Слушайте.")
+                    speakBooksList(0)
+                }
+            }.start()
+            return
+        }
+
         if (command.contains("контакты") || command.contains("список")) {
             startReadingContacts()
             return
@@ -505,7 +556,6 @@ class VoiceService : Service() {
             val name = command
                 .replace("позвонить", "").replace("позвони", "")
                 .replace("набрать", "").replace("набери", "").trim()
-            Log.e("MYVOSK", "Имя в команде: '$name'")
             if (name.isEmpty() || name.length < 3 ||
                 name == "день" || name == "дата" || name == "время" ||
                 name == "часы" || name == "час") {
@@ -534,10 +584,67 @@ class VoiceService : Service() {
         tts.speakOut("Не понял")
     }
 
-    private fun startContactCall(query: String) {
-        Log.e("MYVOSK", "startContactCall: '$query'")
-        val contacts = contactCaller.findContacts(query)
+    // ========== ЧТЕНИЕ СПИСКА КНИГ ==========
+    private fun speakBooksList(startIndex: Int) {
+        if (startIndex >= foundBooks.size) {
+            tts.speakOut("Конец списка")
+            return
+        }
+        val book = foundBooks[startIndex]
+        val ordinal = ordinalWord(startIndex + 1)
+        val cycleInfo = if (!book.cycle.isNullOrEmpty()) " Цикл: ${book.cycle}." else ""
+        val desc = if (book.description.isNotEmpty()) " ${book.description.take(100)}." else ""
 
+        awaitingBookNumber = true
+        tts.speakOut("$ordinal — ${book.title}, автор ${book.author}.$cycleInfo$desc Скажите номер книги для запуска, или 'дальше'.")
+
+        // Ждём номер
+        handler.postDelayed({
+            if (awaitingBookNumber) {
+                // Если не выбрал — можно перейти к следующей
+            }
+        }, 10000L)
+    }
+
+    private fun parseNumber(text: String): Int? {
+        return when {
+            text.contains("перв") || text.contains("один") || text.contains("1") -> 1
+            text.contains("втор") || text.contains("два") || text.contains("2") -> 2
+            text.contains("трет") || text.contains("три") || text.contains("3") -> 3
+            text.contains("четв") || text.contains("четыр") || text.contains("4") -> 4
+            text.contains("пят") || text.contains("5") -> 5
+            text.contains("шест") || text.contains("6") -> 6
+            text.contains("седьм") || text.contains("7") -> 7
+            text.contains("восьм") || text.contains("8") -> 8
+            text.contains("девят") || text.contains("9") -> 9
+            text.contains("десят") || text.contains("10") -> 10
+            else -> null
+        }
+    }
+
+    // ========== ЗАПУСК ПЛЕЕРА ==========
+    private fun launchPlayer(book: OnlineBookEngine.Book) {
+        Thread {
+            val links = onlineBooks.getMp3Links(book.url)
+            handler.post {
+                if (links.isEmpty()) {
+                    tts.beepError()
+                    tts.speakOut("Не удалось найти аудиофайлы")
+                    return@post
+                }
+                val intent = Intent(this, PlayerActivity::class.java).apply {
+                    putExtra("BOOK_TITLE", book.title)
+                    putStringArrayListExtra("MP3_LINKS", ArrayList(links))
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(intent)
+                tts.speakOut("Открываю плеер")
+            }
+        }.start()
+    }
+
+    private fun startContactCall(query: String) {
+        val contacts = contactCaller.findContacts(query)
         if (contacts.isEmpty()) {
             tts.beepError()
             tts.speakOut("Контакт не найден. Назовите другое имя")
@@ -559,9 +666,7 @@ class VoiceService : Service() {
         contactList = contacts
         contactIndex = 0
         choosingContact = true
-        val first = contacts[0]
-        val ordinal = ordinalWord(1)
-        tts.speakOutShort("Нашёл ${contacts.size}. $ordinal ${first.name}. Звонить?")
+        tts.speakOutShort("Нашёл ${contacts.size}. ${ordinalWord(1)} ${contacts[0].name}. Звонить?")
         handler.postDelayed({ startListening() }, 100L)
         tts.scheduleConfirmBeep()
         startChoosingTimeout()
@@ -634,7 +739,6 @@ class VoiceService : Service() {
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            // Android 14+ — используем specialUse (совпадает с манифестом)
             startForeground(1, notification,
                 android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
