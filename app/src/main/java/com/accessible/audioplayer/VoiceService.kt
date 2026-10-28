@@ -123,7 +123,6 @@ class VoiceService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    // СБРАСЫВАЕМ КНИЖНЫЕ СОСТОЯНИЯ ПРИ ЗВОНКЕ
     fun onIncomingCall(callerName: String) {
         Log.e("MYVOSK", "onIncomingCall: $callerName")
         readingContacts = false
@@ -364,7 +363,6 @@ class VoiceService : Service() {
             return
         }
 
-        // ===== ОТВЕТ НА ЗВОНОК — ВСЕГДА ПЕРВЫМ =====
         if (awaitingAnswer) {
             val hasDa = text.contains("да") || text.contains("возьми") ||
                         text.contains("взять") || text.contains("поднять") || text == "д"
@@ -387,7 +385,6 @@ class VoiceService : Service() {
             return
         }
 
-        // ========== ОЖИДАНИЕ ПОИСКОВОГО ЗАПРОСА ==========
         if (awaitingBookQuery) {
             cancelBookQueryTimeout()
             awaitingBookQuery = false
@@ -403,7 +400,6 @@ class VoiceService : Service() {
             return
         }
 
-        // ========== ОЖИДАНИЕ НОМЕРА КНИГИ ==========
         if (awaitingBookNumber) {
             val lower = text.lowercase()
             if (lower.contains("дальше") || lower.contains("следующ") || lower.contains("далее")) {
@@ -597,7 +593,6 @@ class VoiceService : Service() {
         Log.e("MYVOSK", "executeCommand: '$command'")
         val calendar = Calendar.getInstance()
 
-        // ========== ПОИСК ОНЛАЙН КНИГ ==========
         if (command.contains("найди онлайн") || command.contains("найти онлайн") ||
             command.contains("поиск онлайн") ||
             (command.contains("найди") && command.contains("онлайн")) ||
@@ -627,7 +622,6 @@ class VoiceService : Service() {
             return
         }
 
-        // ========== ЖАНРЫ ==========
         if (command.contains("жанры") || command.contains("какие жанры") ||
             command.contains("жанр")) {
             tts.speakOut("Смотрю жанры...")
