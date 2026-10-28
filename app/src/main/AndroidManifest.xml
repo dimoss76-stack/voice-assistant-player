@@ -50,6 +50,12 @@
             android:launchMode="singleInstance"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
 
+        <!-- НОВЫЙ ЭКРАН ПЛЕЕРА -->
+        <activity
+            android:name="com.accessible.audioplayer.PlayerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
+
         <service
             android:name="com.accessible.audioplayer.VoiceService"
             android:foregroundServiceType="specialUse"
