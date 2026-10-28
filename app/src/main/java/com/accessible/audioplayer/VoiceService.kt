@@ -52,7 +52,6 @@ class VoiceService : Service() {
     private var contactsReadIndex = 0
     private var stopListeningActive = false
 
-    // Для онлайн книг
     private var awaitingBookNumber = false
     private var awaitingBookQuery = false
     private var foundBooks: List<OnlineBookEngine.Book> = emptyList()
@@ -124,11 +123,13 @@ class VoiceService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    // СБРАСЫВАЕМ КНИЖНЫЕ СОСТОЯНИЯ ПРИ ЗВОНКЕ
     fun onIncomingCall(callerName: String) {
         Log.e("MYVOSK", "onIncomingCall: $callerName")
         readingContacts = false
         choosingContact = false
         awaitingName = false
+        awaitingBookNumber = false
         awaitingBookQuery = false
         contactList = emptyList()
         contactIndex = 0
@@ -148,6 +149,7 @@ class VoiceService : Service() {
         awaitingAnswer = false
         choosingContact = false
         awaitingName = false
+        awaitingBookNumber = false
         awaitingBookQuery = false
         cancelChoosingTimeout()
         cancelSilenceTimeout()
@@ -165,6 +167,7 @@ class VoiceService : Service() {
         awaitingAnswer = false
         choosingContact = false
         awaitingName = false
+        awaitingBookNumber = false
         awaitingBookQuery = false
         cancelChoosingTimeout()
         cancelSilenceTimeout()
@@ -241,7 +244,6 @@ class VoiceService : Service() {
         choosingTimeout = null
     }
 
-    // Таймаут ожидания поискового запроса (8 секунд)
     private fun startBookQueryTimeout() {
         cancelBookQueryTimeout()
         bookQueryTimeout = Runnable {
@@ -326,7 +328,6 @@ class VoiceService : Service() {
         handler.postDelayed({ startListening() }, 3000L)
     }
 
-    // ===== Запуск поиска по свободному запросу =====
     private fun startBookSearch(query: String) {
         val q = query.trim()
         if (q.isEmpty()) {
@@ -354,7 +355,7 @@ class VoiceService : Service() {
     }
 
     private fun handleRecognizedText(text: String) {
-        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, choosingContact=$choosingContact, awaitingName=$awaitingName, inCall=$inCallMonitoring, reading=$readingContacts, awaitingBookNumber=$awaitingBookNumber, awaitingBookQuery=$awaitingBookQuery, ignore=${System.currentTimeMillis() < tts.ignoreUntil})")
+        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, awaitingName=$awaitingName, reading=$readingContacts, awaitingBookNumber=$awaitingBookNumber, awaitingBookQuery=$awaitingBookQuery, ignore=${System.currentTimeMillis() < tts.ignoreUntil})")
 
         if (recordingMode) return
 
@@ -363,7 +364,30 @@ class VoiceService : Service() {
             return
         }
 
-        // ========== ОЖИДАНИЕ ПОИСКОВОГО ЗАПРОСА (свободный текст) ==========
+        // ===== ОТВЕТ НА ЗВОНОК — ВСЕГДА ПЕРВЫМ =====
+        if (awaitingAnswer) {
+            val hasDa = text.contains("да") || text.contains("возьми") ||
+                        text.contains("взять") || text.contains("поднять") || text == "д"
+            val hasNet = text.contains("нет") || text.startsWith("не") ||
+                         text.contains("сброс") || text.contains("отклон")
+            if (hasNet && !hasDa) {
+                tts.beepOk()
+                tts.speakOutShort("Отклоняю")
+                rejectCall()
+                awaitingAnswer = false
+                return
+            }
+            if (hasDa) {
+                tts.beepOk()
+                tts.speakOutShort("Отвечаю")
+                acceptCall()
+                awaitingAnswer = false
+                return
+            }
+            return
+        }
+
+        // ========== ОЖИДАНИЕ ПОИСКОВОГО ЗАПРОСА ==========
         if (awaitingBookQuery) {
             cancelBookQueryTimeout()
             awaitingBookQuery = false
@@ -382,8 +406,7 @@ class VoiceService : Service() {
         // ========== ОЖИДАНИЕ НОМЕРА КНИГИ ==========
         if (awaitingBookNumber) {
             val lower = text.lowercase()
-            if (lower.contains("дальше") || lower.contains("следующ") ||
-                lower.contains("далее")) {
+            if (lower.contains("дальше") || lower.contains("следующ") || lower.contains("далее")) {
                 val nextIndex = currentBookIndex + 1
                 if (nextIndex < foundBooks.size) {
                     speakBooksList(nextIndex)
@@ -535,28 +558,6 @@ class VoiceService : Service() {
             return
         }
 
-        if (awaitingAnswer) {
-            val hasDa = text.contains("да") || text.contains("возьми") ||
-                        text.contains("взять") || text.contains("поднять") || text == "д"
-            val hasNet = text.contains("нет") || text.startsWith("не") ||
-                         text.contains("сброс") || text.contains("отклон")
-            if (hasNet && !hasDa) {
-                tts.beepOk()
-                tts.speakOutShort("Отклоняю")
-                rejectCall()
-                awaitingAnswer = false
-                return
-            }
-            if (hasDa) {
-                tts.beepOk()
-                tts.speakOutShort("Отвечаю")
-                acceptCall()
-                awaitingAnswer = false
-                return
-            }
-            return
-        }
-
         val activation = settings.activationWord
         val shutdownWord = settings.shutdownWord
 
@@ -601,7 +602,6 @@ class VoiceService : Service() {
             command.contains("поиск онлайн") ||
             (command.contains("найди") && command.contains("онлайн")) ||
             (command.contains("найти") && command.contains("онлайн"))) {
-            // Извлекаем хвост запроса, если он есть в этой же фразе
             var query = command
                 .replace("найди онлайн", "").replace("найти онлайн", "")
                 .replace("поиск онлайн", "")
@@ -610,16 +610,13 @@ class VoiceService : Service() {
                 .trim()
 
             if (query.isNotEmpty() && query.length >= 2) {
-                // Пользователь сказал запрос в одной фразе (например, "найди онлайн фантастика")
                 startBookSearch(query)
                 return
             }
 
-            // Запроса нет — переключаемся на свободное распознавание
             awaitingBookQuery = true
             tts.beepListen()
             tts.speakOutShort("Что искать? Скажите название или автора")
-            // Через 2 секунды (после TTS) включаем свободный режим
             handler.postDelayed({
                 if (awaitingBookQuery) {
                     vosk.startListeningFreeForm()
@@ -685,7 +682,6 @@ class VoiceService : Service() {
         tts.speakOut("Не понял")
     }
 
-    // ========== ЧТЕНИЕ СПИСКА КНИГ ==========
     private fun speakBooksList(startIndex: Int) {
         if (startIndex >= foundBooks.size) {
             awaitingBookNumber = false
@@ -719,7 +715,6 @@ class VoiceService : Service() {
         }
     }
 
-    // ========== ЗАПУСК ПЛЕЕРА ==========
     private fun launchPlayer(book: OnlineBookEngine.Book) {
         awaitingBookNumber = false
         Thread {
