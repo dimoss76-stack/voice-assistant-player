@@ -35,32 +35,70 @@ class OnlineBookEngine {
                 return emptyList()
             }
 
-            // Реальная вёрстка knigavuhe.org: карточки в div.bookkitem внутри #books_list
-            val items = doc.select("#books_list div.bookkitem")
-            Log.e("MYVOSK", "Найдено карточек: ${items.size}")
+            // Пробуем несколько селекторов по очереди
+            var items = doc.select("#books_list div.bookkitem")
+            Log.e("MYVOSK", "Селектор '#books_list div.bookkitem': ${items.size}")
+            if (items.isEmpty()) {
+                items = doc.select("div.bookkitem")
+                Log.e("MYVOSK", "Селектор 'div.bookkitem': ${items.size}")
+            }
+            if (items.isEmpty()) {
+                items = doc.select("div.book-item")
+                Log.e("MYVOSK", "Селектор 'div.book-item': ${items.size}")
+            }
+            if (items.isEmpty()) {
+                items = doc.select("article.book, article.bookkitem")
+                Log.e("MYVOSK", "Селектор 'article.book': ${items.size}")
+            }
 
-            for (item in items) {
-                val titleEl = item.selectFirst("a.bookkitem_name")
-                if (titleEl == null) {
-                    Log.e("MYVOSK", "Пропуск: нет a.bookkitem_name")
-                    continue
+            // Последняя линия обороны: ищем ссылки /book/... и берём их как книги
+            if (items.isEmpty()) {
+                val bookLinks = doc.select("a[href^='/book/']")
+                Log.e("MYVOSK", "Fallback: ссылок /book/: ${bookLinks.size}")
+                val seen = mutableSetOf<String>()
+                for (a in bookLinks) {
+                    val href = a.absUrl("href")
+                    if (href.isEmpty() || seen.contains(href)) continue
+                    seen.add(href)
+                    val title = a.text().trim()
+                    if (title.isEmpty() || title.length < 2) continue
+                    books.add(Book(title, "Неизвестен", null, "", href))
+                    if (books.size >= 10) break
                 }
-                val title = titleEl.text().trim()
-                if (title.isEmpty()) continue
+            } else {
+                for (item in items) {
+                    val titleEl = item.selectFirst("a.bookkitem_name")
+                        ?: item.selectFirst("a.book-item-name")
+                        ?: item.selectFirst("a[href^='/book/']")
+                        ?: continue
+                    val title = titleEl.text().trim()
+                    if (title.isEmpty()) continue
 
-                val bookUrl = titleEl.absUrl("href")
-                if (bookUrl.isEmpty()) {
-                    Log.e("MYVOSK", "Пропуск '$title': пустой href")
-                    continue
+                    val bookUrl = titleEl.absUrl("href")
+                    if (bookUrl.isEmpty()) continue
+
+                    val author = item.selectFirst(".bookkitem_author a")
+                        ?.text()?.trim()
+                        ?: item.selectFirst(".book-author")
+                        ?.text()?.trim()
+                        ?: "Неизвестен"
+                    val description = item.selectFirst(".bookkitem_about")
+                        ?.text()?.trim()?.take(200)
+                        ?: item.selectFirst(".book-description")
+                        ?.text()?.trim()?.take(200)
+                        ?: ""
+                    val cycle = item.selectFirst(".bookkitem_meta a[href*='/series/']")
+                        ?.text()?.trim()
+
+                    books.add(Book(title, author, cycle, description, bookUrl))
+                    Log.e("MYVOSK", "Книга: '$title' / $author / $bookUrl")
+                    if (books.size >= 10) break
                 }
+            }
 
-                val author = item.selectFirst(".bookkitem_author a")?.text()?.trim() ?: "Неизвестен"
-                val description = item.selectFirst(".bookkitem_about")?.text()?.trim()?.take(200) ?: ""
-                val cycle = item.selectFirst(".bookkitem_meta a[href*='/series/']")?.text()?.trim()
-
-                books.add(Book(title, author, cycle, description, bookUrl))
-                Log.e("MYVOSK", "Книга: '$title' / $author / $bookUrl")
-                if (books.size >= 10) break
+            // Отладка: если 0 — логируем начало body и список классов
+            if (books.isEmpty()) {
+                debugHtml(doc)
             }
         } catch (e: Exception) {
             Log.e("MYVOSK", "Ошибка поиска книг: ${e.message}", e)
@@ -69,12 +107,37 @@ class OnlineBookEngine {
         return books
     }
 
+    private fun debugHtml(doc: Document) {
+        try {
+            val body = doc.body()
+            if (body == null) {
+                Log.e("MYVOSK", "DEBUG: body null")
+                return
+            }
+            // Собираем все уникальные классы в body
+            val classes = mutableSetOf<String>()
+            for (el in body.allElements) {
+                val cls = el.className()
+                if (cls.isNotEmpty()) {
+                    cls.split(" ").forEach { if (it.isNotEmpty()) classes.add(it) }
+                }
+                if (classes.size > 80) break
+            }
+            Log.e("MYVOSK", "DEBUG классы в body (первые 80): ${classes.joinToString(", ")}")
+
+            // Первые 800 символов body
+            val snippet = body.html().take(800).replace("\n", " ")
+            Log.e("MYVOSK", "DEBUG body[0..800]: $snippet")
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "DEBUG ошибка: ${e.message}")
+        }
+    }
+
     fun getGenres(): List<String> {
         Log.e("MYVOSK", "Получение списка жанров")
         val genres = mutableListOf<String>()
         try {
             val doc = fetchHtml("https://knigavuhe.org/genres/") ?: return emptyList()
-            // На странице жанров ссылки ведут на /genre/...
             val items = doc.select("a[href^='/genre/']")
             for (item in items) {
                 val name = item.text().trim()
@@ -117,7 +180,7 @@ class OnlineBookEngine {
                 }
             }
 
-            // 2) JS-плеер: ищем плейлист в скриптах (bookPlayer / playlist / mp3)
+            // 2) JS-плеер: ищем плейлист в скриптах
             if (links.isEmpty()) {
                 val scripts = doc.select("script")
                 for (script in scripts) {
@@ -130,11 +193,11 @@ class OnlineBookEngine {
                 }
             }
 
-            // 3) Иногда ссылки лежат в data-атрибутах
+            // 3) data-атрибуты
             if (links.isEmpty()) {
-                val elements = doc.select("[data-mp3], [data-src], [data-url]")
+                val elements = doc.select("[data-mp3], [data-src], [data-url], [data-audio]")
                 for (el in elements) {
-                    for (attr in listOf("data-mp3", "data-src", "data-url")) {
+                    for (attr in listOf("data-mp3", "data-src", "data-url", "data-audio")) {
                         val v = el.attr(attr)
                         if (v.contains(".mp3")) {
                             val abs = if (v.startsWith("http")) v else "https:$v"
@@ -146,6 +209,11 @@ class OnlineBookEngine {
 
             Log.e("MYVOSK", "MP3-ссылок найдено: ${links.size}")
             for (l in links.take(5)) Log.e("MYVOSK", "  mp3: $l")
+
+            if (links.isEmpty()) {
+                val snippet = doc.body()?.html()?.take(800)?.replace("\n", " ")
+                Log.e("MYVOSK", "DEBUG книги (нет mp3) body[0..800]: $snippet")
+            }
         } catch (e: Exception) {
             Log.e("MYVOSK", "Ошибка MP3: ${e.message}", e)
         }
@@ -156,8 +224,10 @@ class OnlineBookEngine {
         return try {
             val request = Request.Builder()
                 .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36")
-                .header("Accept-Language", "ru-RU,ru;q=0.9")
+                // Полноценный desktop Chrome UA — чтобы сайт отдал ту же вёрстку, что в браузере
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "ru-RU,ru;q=0.9,en;q=0.8")
                 .build()
             val response = client.newCall(request).execute()
             Log.e("MYVOSK", "HTTP ${response.code} для $url")
