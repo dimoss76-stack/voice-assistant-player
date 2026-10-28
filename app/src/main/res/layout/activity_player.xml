@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#000000"
+    android:padding="16dp">
+
+    <!-- Окно для отладки (текст) -->
+    <TextView
+        android:id="@+id/debugText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#00FF00"
+        android:textSize="14sp"
+        android:maxLines="10"
+        android:scrollbars="vertical"
+        android:text="Ожидание..." />
+
+    <TextView
+        android:id="@+id/bookTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#FFFFFF"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:layout_marginTop="20dp"
+        android:text="Название книги" />
+
+    <TextView
+        android:id="@+id/chapterTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#CCCCCC"
+        android:textSize="18sp"
+        android:gravity="center"
+        android:layout_marginTop="10dp"
+        android:text="Глава 1" />
+
+    <!-- Огромная кнопка Плей/Пауза -->
+    <Button
+        android:id="@+id/btnPlayPause"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="30dp"
+        android:layout_marginBottom="30dp"
+        android:text="ПАУЗА"
+        android:textSize="40sp"
+        android:textStyle="bold"
+        android:backgroundTint="#2E7D32" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#888888"
+        android:textSize="14sp"
+        android:gravity="center"
+        android:text="Свайп вправо — назад, влево — вперёд\nВверх/вниз — громкость\nГолосом: «Выйти»" />
+
+    <Button
+        android:id="@+id/btnBack"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:text="НАЗАД К СПИСКУ"
+        android:textSize="18sp" />
+
+</LinearLayout>
