@@ -92,65 +92,41 @@ class OnlineBookEngine {
         try {
             val doc = fetchHtml(bookUrl) ?: return emptyList()
 
-            // 1. Ищем прямые теги <audio> или <source>
-            val audioTags = doc.select("audio source[src], audio[src]")
-            for (tag in audioTags) {
-                val src = tag.attr("src")
-                if (src.isNotEmpty()) {
-                    val abs = if (src.startsWith("http")) src else "https:$src"
-                    if (!links.contains(abs)) links.add(abs)
-                }
-            }
-
-            // 2. Ищем data-атрибуты (сайт часто хранит плейлист в data-mp3 или data-url)
-            if (links.isEmpty()) {
-                val elements = doc.select("[data-mp3], [data-src], [data-url], [data-audio]")
-                for (el in elements) {
-                    for (attr in listOf("data-mp3", "data-src", "data-url", "data-audio")) {
-                        val v = el.attr(attr)
-                        if (v.contains(".mp3") || v.contains("/play/")) {
-                            val abs = if (v.startsWith("http")) v else "https:$v"
-                            if (!links.contains(abs)) links.add(abs)
-                        }
-                    }
-                }
-            }
-
-            // 3. Ищем ссылки в JavaScript (regex по всем скриптам)
-            if (links.isEmpty()) {
-                val scripts = doc.select("script")
-                for (script in scripts) {
-                    val html = script.html()
-                    // Ищем любые ссылки, похожие на mp3
+            // 1. Ищем скрипт с инициализацией плеера: new BookPlayer(ID, [{...}])
+            val scripts = doc.select("script")
+            for (script in scripts) {
+                val html = script.html()
+                if (html.contains("BookPlayer")) {
+                    Log.e("MYVOSK", "Найден скрипт BookPlayer, парсим...")
+                    // Ищем все ссылки на mp3 внутри этого скрипта
                     val matches = Regex("""https?://[^\s"'<>]+\.mp3""").findAll(html)
                     for (match in matches) {
-                        val url = match.value
-                        if (!links.contains(url)) links.add(url)
+                        val url = match.value.replace("\\/", "/") // убираем экранирование слэшей
+                        if (!links.contains(url)) {
+                            links.add(url)
+                        }
                     }
+                    if (links.isNotEmpty()) break
                 }
             }
 
-            // 4. Если ничего не нашли — выводим в лог кусок HTML, чтобы понять, где ссылки
+            // 2. Если вдруг не нашли в BookPlayer, ищем вообще везде (на всякий случай)
             if (links.isEmpty()) {
-                Log.e("MYVOSK", "DEBUG: MP3 не найдены. Ищем в блоке плейлиста...")
-                // Ищем блок с классом, где обычно лежит плеер
-                val playerBlock = doc.select(".book_player, .player, #player, .tracks, .playlist").first()
-                if (playerBlock != null) {
-                    val snippet = playerBlock.html().take(1000).replace("\n", " ")
-                    Log.e("MYVOSK", "DEBUG Player Block: $snippet")
-                } else {
-                    // Если блока нет, ищем вообще любые упоминания mp3 или play
-                    val bodyHtml = doc.body()?.html() ?: ""
-                    val idx = bodyHtml.indexOf(".mp3")
-                    if (idx > 0) {
-                        Log.e("MYVOSK", "DEBUG около .mp3: ${bodyHtml.substring((idx - 100).coerceAtLeast(0), (idx + 100).coerceAtMost(bodyHtml.length))}")
-                    } else {
-                        Log.e("MYVOSK", "DEBUG: В HTML вообще нет слова '.mp3'")
-                    }
+                Log.e("MYVOSK", "BookPlayer не найден, ищем по всему HTML...")
+                val bodyHtml = doc.body()?.html() ?: ""
+                val matches = Regex("""https?://[^\s"'<>]+\.mp3""").findAll(bodyHtml)
+                for (match in matches) {
+                    val url = match.value.replace("\\/", "/")
+                    if (!links.contains(url)) links.add(url)
                 }
-            } else {
-                Log.e("MYVOSK", "✅ MP3-ссылок найдено: ${links.size}")
-                for (l in links.take(3)) Log.e("MYVOSK", "  mp3: $l")
+            }
+
+            Log.e("MYVOSK", "✅ MP3-ссылок найдено: ${links.size}")
+            for (l in links.take(3)) Log.e("MYVOSK", "  mp3: $l")
+            
+            if (links.isEmpty()) {
+                val snippet = doc.body()?.html()?.take(500)?.replace("\n", " ")
+                Log.e("MYVOSK", "DEBUG (нет mp3) body[0..500]: $snippet")
             }
         } catch (e: Exception) {
             Log.e("MYVOSK", "Ошибка MP3: ${e.message}", e)
