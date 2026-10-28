@@ -1,7 +1,6 @@
 package com.accessible.audioplayer
 
 import android.os.Bundle
-import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.widget.Button
@@ -33,7 +32,6 @@ class PlayerActivity : AppCompatActivity() {
         chapterTitle = findViewById(R.id.chapterTitle)
         btnPlayPause = findViewById(R.id.btnPlayPause)
 
-        // Получаем данные из Intent
         val title = intent.getStringExtra("BOOK_TITLE") ?: "Неизвестная книга"
         val links = intent.getStringArrayListExtra("MP3_LINKS") ?: arrayListOf()
 
@@ -49,35 +47,31 @@ class PlayerActivity : AppCompatActivity() {
             return
         }
 
-        // Инициализация плеера
         player = ExoPlayer.Builder(this).build()
         playCurrent()
 
-        // Кнопка Плей/Пауза
         btnPlayPause.setOnClickListener {
             togglePlayPause()
         }
 
-        // Жесты
+        // Инициализация жестов (ИСПРАВЛЕНО: правильные типы)
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean = true
+
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
                 if (e1 == null) return false
                 val diffX = e2.x - e1.x
                 val diffY = e2.y - e1.y
 
                 if (Math.abs(diffX) > Math.abs(diffY)) {
-                    // Горизонтальный свайп
                     if (diffX > 100) {
-                        // Вправо — предыдущая глава
                         previousChapter()
                         return true
                     } else if (diffX < -100) {
-                        // Влево — следующая глава
                         nextChapter()
                         return true
                     }
                 } else {
-                    // Вертикальный свайп — громкость
                     if (diffY < -100) {
                         changeVolume(true)
                         return true
@@ -88,17 +82,15 @@ class PlayerActivity : AppCompatActivity() {
                 }
                 return false
             }
-
-            override fun onDown(e: MotionEvent?): Boolean = true
         })
 
-        // Кнопка Назад
         findViewById<Button>(R.id.btnBack).setOnClickListener {
             finish()
         }
     }
 
-    override fun onTouchEvent(event: MotionEvent?): Boolean {
+    // ИСПРАВЛЕНО: правильный тип MotionEvent (не nullable)
+    override fun onTouchEvent(event: MotionEvent): Boolean {
         gestureDetector.onTouchEvent(event)
         return super.onTouchEvent(event)
     }
@@ -120,12 +112,10 @@ class PlayerActivity : AppCompatActivity() {
             player?.pause()
             isPlaying = false
             btnPlayPause.text = "ИГРАТЬ"
-            // TODO: включить микрофон для голосовых команд ("Выйти")
         } else {
             player?.play()
             isPlaying = true
             btnPlayPause.text = "ПАУЗА"
-            // TODO: выключить микрофон
         }
     }
 
@@ -148,7 +138,6 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun changeVolume(up: Boolean) {
-        // TODO: изменить громкость
         debugText.text = if (up) "Громкость: +" else "Громкость: -"
     }
 
