@@ -677,3 +677,96 @@ class VoiceService : Service() {
             return
         }
         if (contacts.size == 1) {
+            val c = contacts[0]
+            choosingContact = true
+            contactList = contacts
+            contactIndex = 0
+            tts.speakOutShort("${c.name}. Звонить?")
+            handler.postDelayed({ startListening() }, 100L)
+            tts.scheduleConfirmBeep()
+            startChoosingTimeout()
+            return
+        }
+        contactList = contacts
+        contactIndex = 0
+        choosingContact = true
+        tts.speakOutShort("Нашёл ${contacts.size}. ${ordinalWord(1)} ${contacts[0].name}. Звонить?")
+        handler.postDelayed({ startListening() }, 100L)
+        tts.scheduleConfirmBeep()
+        startChoosingTimeout()
+    }
+
+    private fun ordinalWord(n: Int): String {
+        return when (n) {
+            1 -> "Первый"; 2 -> "Второй"; 3 -> "Третий"
+            4 -> "Четвёртый"; 5 -> "Пятый"; 6 -> "Шестой"
+            7 -> "Седьмой"; 8 -> "Восьмой"; 9 -> "Девятый"
+            10 -> "Десятый"; else -> "$n-й"
+        }
+    }
+
+    private fun startWordRecording(fieldName: String) {
+        recordingFieldName = fieldName
+        recordingMode = true
+        tts.speakOut("Говорите")
+        handler.postDelayed({
+            Thread {
+                val word = vosk.recordSingleWord(5000L)
+                sendWordResult(word)
+            }.start()
+        }, 1500L)
+    }
+
+    private fun sendWordResult(text: String) {
+        handler.post {
+            val bundle = Bundle().apply {
+                putString("FIELD", recordingFieldName)
+                putString("WORD", text)
+            }
+            try { resultReceiver?.send(0, bundle) } catch (_: Exception) {}
+            recordingMode = false
+            recordingFieldName = ""
+        }
+    }
+
+    private fun acceptCall() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val tm = getSystemService(TELECOM_SERVICE) as TelecomManager
+                tm.acceptRingingCall()
+            }
+        } catch (e: Exception) { Log.e("MYVOSK", "Ошибка приёма: ${e.message}", e) }
+    }
+
+    private fun rejectCall() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val tm = getSystemService(TELECOM_SERVICE) as TelecomManager
+                tm.endCall()
+            }
+        } catch (e: Exception) { Log.e("MYVOSK", "Ошибка отклонения: ${e.message}", e) }
+    }
+
+    private fun showNotification() {
+        val channelId = "voice_service_channel"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId, "Голосовое управление", NotificationManager.IMPORTANCE_LOW
+            )
+            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
+        }
+        val notification: Notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("Помощник активен")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(1, notification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(1, notification)
+        }
+    }
+}
