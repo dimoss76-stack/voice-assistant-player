@@ -1,234 +1,181 @@
 package com.accessible.audioplayer
 
-import android.content.Context
-import android.os.Environment
 import android.util.Log
-import org.vosk.Model
-import org.vosk.Recognizer
-import org.vosk.android.RecognitionListener
-import org.vosk.android.SpeechService
-import org.vosk.android.StorageService
-import java.io.File
-import java.io.IOException
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
+import java.util.concurrent.TimeUnit
 
-class VoskEngine(
-    private val context: Context,
-    private val onResultCallback: (String) -> Unit,
-    private val onErrorCallback: (Exception) -> Unit
-) : RecognitionListener {
+class OnlineBookEngine {
 
-    private var model: Model? = null
-    private var speechService: SpeechService? = null
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .build()
 
-    var onModelReady: (() -> Unit)? = null
+    data class Book(
+        val title: String,
+        val author: String,
+        val cycle: String?,
+        val description: String,
+        val url: String
+    )
 
-    fun init() {
-        Log.e("MYVOSK", "Инициализация Vosk (маленькая модель)...")
+    fun searchBooks(query: String): List<Book> {
+        Log.e("MYVOSK", "Поиск онлайн книг: '$query'")
+        val books = mutableListOf<Book>()
         try {
-            StorageService.unpack(context, "model-ru", "model",
-                { m: Model ->
-                    model = m
-                    Log.e("MYVOSK", "✅ Маленькая модель успешно загружена")
-                    onModelReady?.invoke()
-                },
-                { exception: IOException ->
-                    Log.e("MYVOSK", "❌ Ошибка модели: ${exception.message}", exception)
-                    onErrorCallback(exception)
+            val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+            val url = "https://knigavuhe.org/search/?q=$encodedQuery"
+            val doc = fetchHtml(url) ?: return emptyList()
+
+            var items = doc.select("#books_list div.bookkitem")
+            if (items.isEmpty()) items = doc.select("div.bookkitem")
+            if (items.isEmpty()) items = doc.select("div.book-item")
+
+            if (items.isEmpty()) {
+                val bookLinks = doc.select("a[href^='/book/']")
+                val seen = mutableSetOf<String>()
+                for (a in bookLinks) {
+                    val href = a.absUrl("href")
+                    if (href.isEmpty() || seen.contains(href)) continue
+                    seen.add(href)
+                    val title = a.text().trim()
+                    if (title.isEmpty() || title.length < 2) continue
+                    books.add(Book(title, "Неизвестен", null, "", href))
+                    if (books.size >= 10) break
                 }
-            )
+            } else {
+                for (item in items) {
+                    val titleEl = item.selectFirst("a.bookkitem_name") ?: item.selectFirst("a[href^='/book/']") ?: continue
+                    val title = titleEl.text().trim()
+                    val bookUrl = titleEl.absUrl("href")
+                    if (title.isEmpty() || bookUrl.isEmpty()) continue
+
+                    val author = item.selectFirst(".bookkitem_author a")?.text()?.trim() ?: "Неизвестен"
+                    val description = item.selectFirst(".bookkitem_about")?.text()?.trim()?.take(200) ?: ""
+                    val cycle = item.selectFirst(".bookkitem_meta a[href*='/series/']")?.text()?.trim()
+
+                    books.add(Book(title, author, cycle, description, bookUrl))
+                    if (books.size >= 10) break
+                }
+            }
         } catch (e: Exception) {
-            Log.e("MYVOSK", "❌ Исключение: ${e.message}", e)
-            onErrorCallback(e)
+            Log.e("MYVOSK", "Ошибка поиска книг: ${e.message}", e)
         }
+        Log.e("MYVOSK", "Итого книг: ${books.size}")
+        return books
     }
 
-    fun recordSingleWord(durationMs: Long = 5000L): String {
-        val m = model ?: return ""
-        var audioRecord: android.media.AudioRecord? = null
-        var recognizer: Recognizer? = null
+    fun getGenres(): List<String> {
+        val genres = mutableListOf<String>()
         try {
-            val sampleRate = 16000
-            val bufferSize = android.media.AudioRecord.getMinBufferSize(
-                sampleRate, android.media.AudioFormat.CHANNEL_IN_MONO,
-                android.media.AudioFormat.ENCODING_PCM_16BIT
-            )
-            audioRecord = android.media.AudioRecord(
-                android.media.MediaRecorder.AudioSource.MIC, sampleRate,
-                android.media.AudioFormat.CHANNEL_IN_MONO,
-                android.media.AudioFormat.ENCODING_PCM_16BIT, bufferSize * 4
-            )
-            if (audioRecord.state != android.media.AudioRecord.STATE_INITIALIZED) {
-                return ""
+            val doc = fetchHtml("https://knigavuhe.org/genres/") ?: return emptyList()
+            val items = doc.select("a[href^='/genre/']")
+            for (item in items) {
+                val name = item.text().trim()
+                if (name.isNotEmpty() && name.length < 40 && !genres.contains(name)) {
+                    genres.add(name)
+                }
             }
-            recognizer = Recognizer(m, 16000.0f)
-            audioRecord.startRecording()
-            val buffer = ShortArray(bufferSize)
-            val startTime = System.currentTimeMillis()
-            while (System.currentTimeMillis() - startTime < durationMs) {
-                val read = audioRecord.read(buffer, 0, buffer.size)
-                if (read > 0) recognizer.acceptWaveForm(buffer, read)
-            }
-            val json = recognizer.finalResult
-            return extractText(json)
         } catch (e: Exception) {
-            Log.e("MYVOSK", "Ошибка записи слова: ${e.message}", e)
-            return ""
-        } finally {
-            try { audioRecord?.stop() } catch (_: Exception) {}
-            try { audioRecord?.release() } catch (_: Exception) {}
-            try { recognizer?.close() } catch (_: Exception) {}
+            Log.e("MYVOSK", "Ошибка жанров: ${e.message}", e)
         }
+        return genres
     }
 
-    private fun extractText(json: String): String {
+    fun getMp3Links(bookUrl: String): List<String> {
+        Log.e("MYVOSK", "Получение ссылок MP3: $bookUrl")
+        val links = mutableListOf<String>()
+        try {
+            val doc = fetchHtml(bookUrl) ?: return emptyList()
+
+            // Ищем инициализацию BookPlayer: new BookPlayer(ID, [{...}])
+            // В HTML это выглядит как: var player = new BookPlayer(123, [{"url":"https:\/\/..."}]);
+            val scripts = doc.select("script")
+            var foundJson = false
+
+            for (script in scripts) {
+                val html = script.html()
+                if (html.contains("new BookPlayer")) {
+                    Log.e("MYVOSK", "Найден new BookPlayer, извлекаем JSON...")
+                    
+                    // Регулярка захватывает массив JSON внутри new BookPlayer(ID, [...]),
+                    val pattern = Regex("""new BookPlayer\(\d+,\s*(\[.*?\])\s*[,)]""", RegexOption.DOT_MATCHES_ALL)
+                    val match = pattern.find(html)
+                    
+                    if (match != null) {
+                        val jsonArray = match.groupValues[1]
+                        Log.e("MYVOSK", "JSON массив найден, длина: ${jsonArray.length}")
+                        
+                        // Внутри JSON ищем все url
+                        val urlPattern = Regex(""""url"\s*:\s*"([^"]+)"""")
+                        val urlMatches = urlPattern.findAll(jsonArray)
+                        for (urlMatch in urlMatches) {
+                            // В JSON слэши экранированы: https:\/\/...
+                            // Нужно заменить \/ на /
+                            val rawUrl = urlMatch.groupValues[1]
+                            val cleanUrl = rawUrl.replace("\\/", "/")
+                            if (cleanUrl.endsWith(".mp3", ignoreCase = true) || cleanUrl.contains(".mp3")) {
+                                if (!links.contains(cleanUrl)) {
+                                    links.add(cleanUrl)
+                                }
+                            }
+                        }
+                        foundJson = true
+                        if (links.isNotEmpty()) break
+                    } else {
+                        Log.e("MYVOSK", "new BookPlayer найден, но Regex не совпал с JSON")
+                    }
+                }
+            }
+
+            // Если JSON не нашли, пробуем старый метод (на всякий случай)
+            if (!foundJson || links.isEmpty()) {
+                Log.e("MYVOSK", "Fallback: ищем mp3 по всему HTML...")
+                val bodyHtml = doc.body()?.html() ?: ""
+                val matches = Regex("""https?:\\?/\\?/[^\s"'<>]+\.mp3""").findAll(bodyHtml)
+                for (match in matches) {
+                    val url = match.value.replace("\\/", "/")
+                    if (!links.contains(url)) links.add(url)
+                }
+            }
+
+            Log.e("MYVOSK", "✅ MP3-ссылок найдено: ${links.size}")
+            for (l in links.take(3)) Log.e("MYVOSK", "  mp3: $l")
+            
+            if (links.isEmpty()) {
+                val bodySnippet = doc.body()?.html()?.take(1000)?.replace("\n", " ")
+                Log.e("MYVOSK", "DEBUG (нет mp3) body[0..1000]: $bodySnippet")
+            }
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка MP3: ${e.message}", e)
+        }
+        return links
+    }
+
+    private fun fetchHtml(url: String): Document? {
         return try {
-            val start = json.indexOf("\"text\"")
-            if (start < 0) return ""
-            val afterColon = json.indexOf(":", start) + 1
-            val firstQuote = json.indexOf("\"", afterColon) + 1
-            val secondQuote = json.indexOf("\"", firstQuote)
-            if (firstQuote <= 0 || secondQuote <= 0) return ""
-            json.substring(firstQuote, secondQuote).trim()
-        } catch (e: Exception) { "" }
-    }
-
-    fun startListening(activation: String, confirm: String, shutdown: String) {
-        try {
-            model?.let {
-                val grammar = """[
-                    "$activation", "$confirm", "$shutdown",
-                    "время", "часы", "час", "сколько",
-                    "дата", "день", "число",
-                    "да", "нет", "ответь", "сбрось", "отклони",
-                    "позвони", "позвонить", "набери", "набрать",
-                    "контакты", "список", "покажи",
-                    "отмена", "отменить",
-                    "найди", "найти", "онлайн", "поиск",
-                    "жанры", "жанр",
-                    "включи", "включить", "книга", "книгу", "книги",
-                    "дальше", "следующая", "следующую", "далее",
-                    "первая", "вторая", "третья", "четвёртая", "четвертая",
-                    "пятая", "шестая", "седьмая", "восьмая", "девятая", "десятая",
-                    "первый", "второй", "третий",
-                    "[unk]"
-                ]"""
-                val rec = Recognizer(it, 16000.0f, grammar)
-                speechService?.stop()
-                speechService?.shutdown()
-                speechService = SpeechService(rec, 16000.0f)
-                speechService?.startListening(this)
-                Log.e("MYVOSK", "Слушание с грамматикой запущено")
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "ru-RU,ru;q=0.9,en;q=0.8")
+                .build()
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                response.close()
+                return null
             }
+            val body = response.body?.string()
+            response.close()
+            if (body == null) return null
+            Jsoup.parse(body, url)
         } catch (e: Exception) {
-            Log.e("MYVOSK", "Ошибка startListening: ${e.message}", e)
+            Log.e("MYVOSK", "Ошибка загрузки HTML: ${e.message}", e)
+            null
         }
     }
-
-    // ===== НОВОЕ: свободное распознавание без грамматики (для поиска книг) =====
-    fun startListeningFreeForm() {
-        try {
-            model?.let {
-                val rec = Recognizer(it, 16000.0f)
-                speechService?.stop()
-                speechService?.shutdown()
-                speechService = SpeechService(rec, 16000.0f)
-                speechService?.startListening(this)
-                Log.e("MYVOSK", "✅ Свободное распознавание (без грамматики) запущено")
-            }
-        } catch (e: Exception) {
-            Log.e("MYVOSK", "Ошибка startListeningFreeForm: ${e.message}", e)
-        }
-    }
-
-    fun prepareListeningForNames(names: List<String>) {
-        try {
-            speechService?.stop()
-            speechService?.shutdown()
-            speechService = null
-            model?.let { m ->
-                val namesJson = if (names.isEmpty()) "" else names.joinToString(",") { "\"$it\"" }
-                val grammar = if (namesJson.isEmpty()) null else """[
-                    $namesJson,
-                    "отмена", "отменить", "стоп", "хватит", "назад"
-                ]"""
-                val rec = if (grammar != null) Recognizer(m, 16000.0f, grammar) else Recognizer(m, 16000.0f)
-                speechService = SpeechService(rec, 16000.0f)
-                Log.e("MYVOSK", "Распознавание имён готово (${names.size} имён)")
-            }
-        } catch (e: Exception) {
-            Log.e("MYVOSK", "Ошибка prepareListeningForNames: ${e.message}", e)
-        }
-    }
-
-    fun startListeningNow() {
-        try {
-            speechService?.startListening(this)
-        } catch (e: Exception) {
-            Log.e("MYVOSK", "Ошибка startListeningNow: ${e.message}", e)
-        }
-    }
-
-    fun startListeningForHangup() {
-        try {
-            speechService?.stop()
-            speechService?.shutdown()
-            speechService = null
-            model?.let { m ->
-                val grammar = """[
-                    "завершить этот звонок", "завершить звонок", "положить трубку"
-                ]"""
-                val rec = Recognizer(m, 16000.0f, grammar)
-                speechService = SpeechService(rec, 16000.0f)
-                speechService?.startListening(this)
-                Log.e("MYVOSK", "✅ Режим мониторинга активен")
-            }
-        } catch (e: Exception) {
-            Log.e("MYVOSK", "Ошибка startListeningForHangup: ${e.message}", e)
-        }
-    }
-
-    fun startListeningForStop() {
-        try {
-            speechService?.stop()
-            speechService?.shutdown()
-            speechService = null
-            model?.let { m ->
-                val grammar = """["стоп", "отмена", "отменить", "хватит", "остановись", "прекрати"]"""
-                val rec = Recognizer(m, 16000.0f, grammar)
-                speechService = SpeechService(rec, 16000.0f)
-                speechService?.startListening(this)
-                Log.e("MYVOSK", "✅ Грамматика 'стоп' активна")
-            }
-        } catch (e: Exception) {
-            Log.e("MYVOSK", "Ошибка startListeningForStop: ${e.message}", e)
-        }
-    }
-
-    fun stop() {
-        try {
-            speechService?.stop()
-            speechService?.shutdown()
-            speechService = null
-        } catch (_: Exception) {}
-    }
-
-    fun release() {
-        stop()
-        model = null
-    }
-
-    override fun onResult(hypothesis: String?) {
-        if (hypothesis == null) return
-        val text = hypothesis.substringAfter("\"text\" : \"").substringBefore("\"").trim().lowercase()
-        if (text.isEmpty()) return
-        onResultCallback(text)
-    }
-
-    override fun onPartialResult(hypothesis: String?) {}
-    override fun onFinalResult(hypothesis: String?) {}
-    override fun onError(exception: Exception?) {
-        Log.e("MYVOSK", "Vosk onError: ${exception?.message}", exception)
-        exception?.let { onErrorCallback(it) }
-    }
-    override fun onTimeout() {}
 }
