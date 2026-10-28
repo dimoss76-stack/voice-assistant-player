@@ -124,6 +124,22 @@ class VoskEngine(
         }
     }
 
+    // ===== НОВОЕ: свободное распознавание без грамматики (для поиска книг) =====
+    fun startListeningFreeForm() {
+        try {
+            model?.let {
+                val rec = Recognizer(it, 16000.0f)
+                speechService?.stop()
+                speechService?.shutdown()
+                speechService = SpeechService(rec, 16000.0f)
+                speechService?.startListening(this)
+                Log.e("MYVOSK", "✅ Свободное распознавание (без грамматики) запущено")
+            }
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка startListeningFreeForm: ${e.message}", e)
+        }
+    }
+
     fun prepareListeningForNames(names: List<String>) {
         try {
             speechService?.stop()
