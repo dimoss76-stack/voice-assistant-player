@@ -1,15 +1,19 @@
 package com.accessible.audioplayer
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioManager
 import android.os.Bundle
 import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
-import android.widget.Button
+import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -20,7 +24,7 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var debugText: TextView
     private lateinit var bookTitle: TextView
     private lateinit var chapterTitle: TextView
-    private lateinit var btnPlayPause: Button
+    private lateinit var btnPlayPause: TextView // Теперь TextView
 
     private var mp3Links: List<String> = emptyList()
     private var currentIndex = 0
@@ -29,9 +33,24 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var gestureDetector: GestureDetector
     private lateinit var audioManager: AudioManager
 
+    // Приемник команд от VoiceService (когда на паузе сказали "вперед" и т.д.)
+    private val commandReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                "PLAYER_CMD_PLAY" -> { if (!isPlaying) togglePlayPause() }
+                "PLAYER_CMD_NEXT" -> { nextChapter() }
+                "PLAYER_CMD_PREV" -> { previousChapter() }
+                "PLAYER_CMD_EXIT" -> { finish() }
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_player)
+
+        // ЭКРАН НЕ ГАСНЕТ, ПОКА ОТКРЫТ ПЛЕЕР
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         debugText = findViewById(R.id.debugText)
         bookTitle = findViewById(R.id.bookTitle)
@@ -47,22 +66,17 @@ class PlayerActivity : AppCompatActivity() {
         mp3Links = links
         currentIndex = 0
 
-        debugText.text = "Ссылок: ${mp3Links.size}\nТекущая: 1"
-
         if (mp3Links.isEmpty()) {
             debugText.text = "Нет ссылок для воспроизведения"
             btnPlayPause.isEnabled = false
             return
         }
 
-        // Инициализация плеера
         player = ExoPlayer.Builder(this).build()
 
-        // Автопереход на следующую главу
         player?.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
-                    Log.e("MYVOSK", "Трек закончился, переключаю на следующий")
                     nextChapter()
                 }
             }
@@ -70,12 +84,10 @@ class PlayerActivity : AppCompatActivity() {
 
         playCurrent()
 
-        // Кнопка Плей/Пауза
         btnPlayPause.setOnClickListener {
             togglePlayPause()
         }
 
-        // Жесты
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean = true
 
@@ -105,16 +117,24 @@ class PlayerActivity : AppCompatActivity() {
             }
         })
 
-        // Перехватываем свайпы на КОРНЕВОМ Layout (работает поверх кнопок)
+        // Перехватываем ВСЕ касания на корневом Layout
         findViewById<LinearLayout>(R.id.rootLayout).setOnTouchListener { _, event ->
             gestureDetector.onTouchEvent(event)
             false
         }
 
-        // Кнопка Назад
-        findViewById<Button>(R.id.btnBack).setOnClickListener {
+        findViewById<TextView>(R.id.btnBack).setOnClickListener {
             finish()
         }
+
+        // Регистрируем приемник команд
+        val filter = IntentFilter().apply {
+            addAction("PLAYER_CMD_PLAY")
+            addAction("PLAYER_CMD_NEXT")
+            addAction("PLAYER_CMD_PREV")
+            addAction("PLAYER_CMD_EXIT")
+        }
+        LocalBroadcastManager.getInstance(this).registerReceiver(commandReceiver, filter)
     }
 
     private fun playCurrent() {
@@ -127,6 +147,7 @@ class PlayerActivity : AppCompatActivity() {
         player?.play()
         isPlaying = true
         btnPlayPause.text = "ПАУЗА"
+        notifyService("PLAYING") // Говорим сервису: книга играет, микрофон не нужен
     }
 
     private fun togglePlayPause() {
@@ -134,10 +155,13 @@ class PlayerActivity : AppCompatActivity() {
             player?.pause()
             isPlaying = false
             btnPlayPause.text = "ИГРАТЬ"
+            // Включаем микрофон, ждем команды "продолжить", "вперед", "назад", "выйти"
+            notifyService("PAUSED")
         } else {
             player?.play()
             isPlaying = true
             btnPlayPause.text = "ПАУЗА"
+            notifyService("PLAYING") // Выключаем микрофон
         }
     }
 
@@ -168,9 +192,19 @@ class PlayerActivity : AppCompatActivity() {
         debugText.text = "Громкость: $next из $max"
     }
 
+    private fun notifyService(state: String) {
+        val intent = Intent("PLAYER_STATE_CHANGED").apply {
+            putExtra("STATE", state)
+        }
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+    }
+
     override fun onDestroy() {
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(commandReceiver)
         player?.release()
         player = null
+        // Сообщаем сервису, что плеер закрыт, возвращаем обычное слушание команд
+        notifyService("CLOSED")
         super.onDestroy()
     }
 }
