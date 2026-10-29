@@ -4,7 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -15,6 +18,7 @@ import android.os.ResultReceiver
 import android.telecom.TelecomManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -64,8 +68,37 @@ class VoiceService : Service() {
     private var choosingTimeout: Runnable? = null
     private var bookQueryTimeout: Runnable? = null
 
+    // Флаг, что мы сейчас управляем плеером (ждем команд "продолжить", "вперед" и т.д.)
+    private var playerCommandsMode = false
+
     private val handler = Handler(Looper.getMainLooper())
     private val resetActivation = Runnable { isActivated = false }
+
+    // Приемник от PlayerActivity
+    private val playerStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "PLAYER_STATE_CHANGED") {
+                val state = intent.getStringExtra("STATE")
+                Log.e("MYVOSK", "Получено состояние плеера: $state")
+                when (state) {
+                    "PLAYING", "CLOSED" -> {
+                        // Книга играет или плеер закрыт — микрофон не слушаем (или возвращаем обычные команды)
+                        playerCommandsMode = false
+                        if (state == "CLOSED") {
+                            startListening() // Возвращаем обычное прослушивание
+                        } else {
+                            vosk.stop() // Просто выключаем микрофон
+                        }
+                    }
+                    "PAUSED" -> {
+                        // Пауза — включаем микрофон и ждем команды плеера
+                        playerCommandsMode = true
+                        vosk.startListeningForPlayer()
+                    }
+                }
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -93,6 +126,12 @@ class VoiceService : Service() {
         }
         vosk.init()
 
+        // Регистрируем приемник состояния плеера
+        LocalBroadcastManager.getInstance(this).registerReceiver(
+            playerStateReceiver,
+            IntentFilter("PLAYER_STATE_CHANGED")
+        )
+
         showNotification()
     }
 
@@ -109,6 +148,7 @@ class VoiceService : Service() {
 
     override fun onDestroy() {
         instance = null
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(playerStateReceiver)
         handler.removeCallbacks(resetActivation)
         cancelSilenceTimeout()
         cancelChoosingTimeout()
@@ -130,6 +170,7 @@ class VoiceService : Service() {
         awaitingName = false
         awaitingBookNumber = false
         awaitingBookQuery = false
+        playerCommandsMode = false
         contactList = emptyList()
         contactIndex = 0
         cancelChoosingTimeout()
@@ -150,6 +191,7 @@ class VoiceService : Service() {
         awaitingName = false
         awaitingBookNumber = false
         awaitingBookQuery = false
+        playerCommandsMode = false
         cancelChoosingTimeout()
         cancelSilenceTimeout()
         cancelBookQueryTimeout()
@@ -168,6 +210,7 @@ class VoiceService : Service() {
         awaitingName = false
         awaitingBookNumber = false
         awaitingBookQuery = false
+        playerCommandsMode = false
         cancelChoosingTimeout()
         cancelSilenceTimeout()
         cancelBookQueryTimeout()
@@ -181,6 +224,7 @@ class VoiceService : Service() {
         cancelBookQueryTimeout()
         stopListeningActive = false
         awaitingBookQuery = false
+        playerCommandsMode = false
         vosk.startListening(
             activation = settings.activationWord,
             confirm = settings.confirmWord,
@@ -351,8 +395,14 @@ class VoiceService : Service() {
         }.start()
     }
 
+    private fun sendPlayerCommand(action: String) {
+        val intent = Intent(action)
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+        Log.e("MYVOSK", "Отправлена команда плееру: $action")
+    }
+
     private fun handleRecognizedText(text: String) {
-        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, awaitingName=$awaitingName, reading=$readingContacts, awaitingBookNumber=$awaitingBookNumber, awaitingBookQuery=$awaitingBookQuery)")
+        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, awaitingName=$awaitingName, reading=$readingContacts, awaitingBookNumber=$awaitingBookNumber, awaitingBookQuery=$awaitingBookQuery, playerMode=$playerCommandsMode)")
 
         if (recordingMode) return
 
@@ -360,6 +410,34 @@ class VoiceService : Service() {
             return
         }
 
+        // === РЕЖИМ УПРАВЛЕНИЯ ПЛЕЕРОМ (НА ПАУЗЕ) ===
+        if (playerCommandsMode) {
+            val lower = text.lowercase()
+            when {
+                lower.contains("продолжить") || lower.contains("продолжай") || lower.contains("играть") -> {
+                    tts.beepOk()
+                    sendPlayerCommand("PLAYER_CMD_PLAY")
+                    // PlayerActivity сам пришлет "PLAYING", и мы отключим микрофон
+                }
+                lower.contains("вперед") || lower.contains("вперёд") || lower.contains("следующая") -> {
+                    tts.beepOk()
+                    sendPlayerCommand("PLAYER_CMD_NEXT")
+                }
+                lower.contains("назад") || lower.contains("предыдущая") -> {
+                    tts.beepOk()
+                    sendPlayerCommand("PLAYER_CMD_PREV")
+                }
+                lower.contains("отмена") || lower.contains("выйти") || lower.contains("выход") || lower.contains("стоп") -> {
+                    tts.beepOk()
+                    sendPlayerCommand("PLAYER_CMD_EXIT")
+                    playerCommandsMode = false
+                    handler.postDelayed({ startListening() }, 1000L) // Возврат к обычному режиму
+                }
+            }
+            return
+        }
+
+        // === ОСТАЛЬНЫЕ РЕЖИМЫ ===
         if (awaitingAnswer) {
             val hasDa = text.contains("да") || text.contains("возьми") ||
                         text.contains("взять") || text.contains("поднять") || text == "д"
@@ -833,7 +911,6 @@ class VoiceService : Service() {
             .setOngoing(true)
             .build()
 
-        // ВОЗВРАЩАЕМ ПРАВИЛЬНЫЙ ТИП ДЛЯ МИКРОФОНА
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(1, notification,
                 android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
