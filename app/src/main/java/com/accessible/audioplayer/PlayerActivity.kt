@@ -1,12 +1,17 @@
 package com.accessible.audioplayer
 
+import android.content.Context
+import android.media.AudioManager
 import android.os.Bundle
+import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 
 class PlayerActivity : AppCompatActivity() {
@@ -22,6 +27,7 @@ class PlayerActivity : AppCompatActivity() {
     private var isPlaying = false
 
     private lateinit var gestureDetector: GestureDetector
+    private lateinit var audioManager: AudioManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,6 +37,8 @@ class PlayerActivity : AppCompatActivity() {
         bookTitle = findViewById(R.id.bookTitle)
         chapterTitle = findViewById(R.id.chapterTitle)
         btnPlayPause = findViewById(R.id.btnPlayPause)
+
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         val title = intent.getStringExtra("BOOK_TITLE") ?: "Неизвестная книга"
         val links = intent.getStringArrayListExtra("MP3_LINKS") ?: arrayListOf()
@@ -47,14 +55,27 @@ class PlayerActivity : AppCompatActivity() {
             return
         }
 
+        // Инициализация плеера
         player = ExoPlayer.Builder(this).build()
+
+        // Автопереход на следующую главу
+        player?.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    Log.e("MYVOSK", "Трек закончился, переключаю на следующий")
+                    nextChapter()
+                }
+            }
+        })
+
         playCurrent()
 
+        // Кнопка Плей/Пауза
         btnPlayPause.setOnClickListener {
             togglePlayPause()
         }
 
-        // Инициализация жестов (ИСПРАВЛЕНО: правильные типы)
+        // Жесты
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean = true
 
@@ -64,18 +85,18 @@ class PlayerActivity : AppCompatActivity() {
                 val diffY = e2.y - e1.y
 
                 if (Math.abs(diffX) > Math.abs(diffY)) {
-                    if (diffX > 100) {
+                    if (diffX > 150) {
                         previousChapter()
                         return true
-                    } else if (diffX < -100) {
+                    } else if (diffX < -150) {
                         nextChapter()
                         return true
                     }
                 } else {
-                    if (diffY < -100) {
+                    if (diffY < -150) {
                         changeVolume(true)
                         return true
-                    } else if (diffY > 100) {
+                    } else if (diffY > 150) {
                         changeVolume(false)
                         return true
                     }
@@ -84,15 +105,16 @@ class PlayerActivity : AppCompatActivity() {
             }
         })
 
+        // Перехватываем свайпы на КОРНЕВОМ Layout (работает поверх кнопок)
+        findViewById<LinearLayout>(R.id.rootLayout).setOnTouchListener { _, event ->
+            gestureDetector.onTouchEvent(event)
+            false
+        }
+
+        // Кнопка Назад
         findViewById<Button>(R.id.btnBack).setOnClickListener {
             finish()
         }
-    }
-
-    // ИСПРАВЛЕНО: правильный тип MotionEvent (не nullable)
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        gestureDetector.onTouchEvent(event)
-        return super.onTouchEvent(event)
     }
 
     private fun playCurrent() {
@@ -138,7 +160,12 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun changeVolume(up: Boolean) {
-        debugText.text = if (up) "Громкость: +" else "Громкость: -"
+        val stream = AudioManager.STREAM_MUSIC
+        val current = audioManager.getStreamVolume(stream)
+        val max = audioManager.getStreamMaxVolume(stream)
+        val next = if (up) (current + 1).coerceAtMost(max) else (current - 1).coerceAtLeast(0)
+        audioManager.setStreamVolume(stream, next, 0)
+        debugText.text = "Громкость: $next из $max"
     }
 
     override fun onDestroy() {
