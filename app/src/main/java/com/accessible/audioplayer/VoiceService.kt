@@ -305,7 +305,6 @@ class VoiceService : Service() {
         }
         val contact = contactsToRead[contactsReadIndex]
         contactsReadIndex++
-        Log.e("MYVOSK", "Читаю контакт ${contactsReadIndex}/${contactsToRead.size}: '${contact.name}'")
         tts.speakOutShort(contact.name)
         val delayAfterTts = (tts.ignoreUntil - System.currentTimeMillis()) + 500L
         handler.postDelayed({
@@ -319,7 +318,6 @@ class VoiceService : Service() {
     }
 
     private fun stopReadingContacts() {
-        Log.e("MYVOSK", "Остановка чтения контактов")
         readingContacts = false
         stopListeningActive = false
         tts.beepOk()
@@ -354,12 +352,11 @@ class VoiceService : Service() {
     }
 
     private fun handleRecognizedText(text: String) {
-        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, awaitingName=$awaitingName, reading=$readingContacts, awaitingBookNumber=$awaitingBookNumber, awaitingBookQuery=$awaitingBookQuery, ignore=${System.currentTimeMillis() < tts.ignoreUntil})")
+        Log.e("MYVOSK", "Распознано: '$text' (awaitingAnswer=$awaitingAnswer, awaitingName=$awaitingName, reading=$readingContacts, awaitingBookNumber=$awaitingBookNumber, awaitingBookQuery=$awaitingBookQuery)")
 
         if (recordingMode) return
 
         if (System.currentTimeMillis() < tts.ignoreUntil) {
-            Log.e("MYVOSK", "Игнорирую (эхо TTS): '$text'")
             return
         }
 
@@ -389,7 +386,6 @@ class VoiceService : Service() {
             cancelBookQueryTimeout()
             awaitingBookQuery = false
             val query = text.trim()
-            Log.e("MYVOSK", "Поисковый запрос (свободный): '$query'")
             if (query.isEmpty() || query.length < 2) {
                 tts.beepError()
                 tts.speakOutShort("Не расслышал. Отменено")
@@ -436,7 +432,6 @@ class VoiceService : Service() {
                          words.contains("отменить") || words.contains("хватит") ||
                          words.contains("остановись") || words.contains("прекрати")
             if (isStop) {
-                Log.e("MYVOSK", "✅ Команда 'стоп' во время чтения")
                 stopReadingContacts()
             }
             return
@@ -447,7 +442,6 @@ class VoiceService : Service() {
             val isHangupPhrase = (words.contains("завершить") && words.contains("звонок")) ||
                                  (words.contains("положить") && words.contains("трубку"))
             if (isHangupPhrase) {
-                Log.e("MYVOSK", "✅ Команда завершения звонка: '$text'")
                 tts.beepOk()
                 tts.speakOutShort("Завершаю")
                 handler.postDelayed({
@@ -593,15 +587,16 @@ class VoiceService : Service() {
         Log.e("MYVOSK", "executeCommand: '$command'")
         val calendar = Calendar.getInstance()
 
-        if (command.contains("найди онлайн") || command.contains("найти онлайн") ||
-            command.contains("поиск онлайн") ||
-            (command.contains("найди") && command.contains("онлайн")) ||
-            (command.contains("найти") && command.contains("онлайн"))) {
+        // Берем ключевое слово из настроек (по умолчанию "включи книгу")
+        val bookCmd = settings.bookCommandWord.lowercase()
+        
+        // Проверяем, сказал ли пользователь это слово
+        if (command.contains(bookCmd) || command.contains("найди онлайн")) {
             var query = command
-                .replace("найди онлайн", "").replace("найти онлайн", "")
+                .replace(bookCmd, "")
+                .replace("найди онлайн", "")
+                .replace("найти онлайн", "")
                 .replace("поиск онлайн", "")
-                .replace("найди", "").replace("найти", "")
-                .replace("поиск", "").replace("онлайн", "")
                 .trim()
 
             if (query.isNotEmpty() && query.length >= 2) {
@@ -616,7 +611,6 @@ class VoiceService : Service() {
                 if (awaitingBookQuery) {
                     vosk.startListeningFreeForm()
                     startBookQueryTimeout()
-                    Log.e("MYVOSK", "Ожидание свободного поискового запроса (8 сек)")
                 }
             }, 2500L)
             return
