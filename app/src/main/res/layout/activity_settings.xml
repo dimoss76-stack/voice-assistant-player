@@ -1,191 +1,66 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:padding="16dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="20dp">
+        android:orientation="vertical">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Ключевое слово для активации:"
-            android:textSize="16sp"
-            android:paddingTop="10dp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <EditText
-                android:id="@+id/editActivation"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="слушай"
-                android:textSize="18sp" />
-
-            <Button
-                android:id="@+id/btnRecordActivation"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🎤" />
-        </LinearLayout>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Подтверждение (после активации):"
-            android:textSize="16sp"
-            android:paddingTop="15dp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <EditText
-                android:id="@+id/editConfirm"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="говорите"
-                android:textSize="18sp" />
-
-            <Button
-                android:id="@+id/btnRecordConfirm"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🎤" />
-        </LinearLayout>
-
-        <!-- РАЗДЕЛ: ВЫКЛЮЧЕНИЕ -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginTop="25dp"
-            android:background="#888888" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="15dp"
-            android:text="ВЫКЛЮЧЕНИЕ"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-
-        <CheckBox
-            android:id="@+id/checkShutdownEnabled"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="Разрешить выключение голосом"
-            android:textSize="16sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="10dp">
-
-            <EditText
-                android:id="@+id/editShutdown"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="выключись"
-                android:textSize="18sp" />
-
-            <Button
-                android:id="@+id/btnRecordShutdown"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🎤" />
-        </LinearLayout>
-
-        <!-- РАЗДЕЛ: ЗВОНКИ -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginTop="25dp"
-            android:background="#888888" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="15dp"
-            android:text="ЗВОНКИ"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-
-        <CheckBox
-            android:id="@+id/checkShowCallButtons"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="Показывать большие кнопки при входящем звонке"
-            android:textSize="16sp"
-            android:checked="true" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="15dp"
-            android:text="Расположение кнопок:"
-            android:textSize="16sp" />
-
-        <RadioGroup
-            android:id="@+id/radioLayout"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="vertical">
-
-            <RadioButton
-                android:id="@+id/radioVertical"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Вертикальные (ОТВЕТИТЬ вверху, СБРОСИТЬ внизу)"
-                android:textSize="16sp"
-                android:checked="true" />
-
-            <RadioButton
-                android:id="@+id/radioHorizontal"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Горизонтальные (СБРОСИТЬ слева, ОТВЕТИТЬ справа)"
-                android:textSize="16sp" />
-
-        </RadioGroup>
-
-        <TextView
-            android:id="@+id/statusText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text=""
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="#0066CC" />
-
-        <Button
-            android:id="@+id/btnSave"
-            android:layout_width="match_parent"
-            android:layout_height="60dp"
-            android:layout_marginTop="25dp"
-            android:text="СОХРАНИТЬ"
+            android:text="Слово активации (слушай)"
             android:textSize="18sp" />
 
-        <Button
-            android:id="@+id/btnBack"
+        <EditText
+            android:id="@+id/editActivation"
             android:layout_width="match_parent"
-            android:layout_height="60dp"
-            android:layout_marginTop="10dp"
-            android:text="НАЗАД"
+            android:layout_height="wrap_content"
+            android:inputType="text" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Слово подтверждения (говорите)"
+            android:textSize="18sp"
+            android:layout_marginTop="16dp" />
+
+        <EditText
+            android:id="@+id/editConfirm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="text" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Команда для поиска книги (включи книгу)"
+            android:textSize="18sp"
+            android:layout_marginTop="16dp" />
+
+        <EditText
+            android:id="@+id/editBookCommand"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="text" />
+
+        <Switch
+            android:id="@+id/switchShutdown"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Разрешить голосовое выключение"
+            android:textSize="18sp"
+            android:layout_marginTop="16dp" />
+
+        <Button
+            android:id="@+id/btnBackSettings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="СОХРАНИТЬ И НАЗАД"
             android:textSize="18sp" />
 
     </LinearLayout>
