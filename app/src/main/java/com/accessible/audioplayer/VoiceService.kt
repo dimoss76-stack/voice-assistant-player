@@ -360,6 +360,7 @@ class VoiceService : Service() {
             return
         }
 
+        // ===== 1. ОТВЕТ НА ЗВОНОК =====
         if (awaitingAnswer) {
             val hasDa = text.contains("да") || text.contains("возьми") ||
                         text.contains("взять") || text.contains("поднять") || text == "д"
@@ -382,6 +383,7 @@ class VoiceService : Service() {
             return
         }
 
+        // ===== 2. ОЖИДАНИЕ ПОИСКОВОГО ЗАПРОСА =====
         if (awaitingBookQuery) {
             cancelBookQueryTimeout()
             awaitingBookQuery = false
@@ -396,8 +398,18 @@ class VoiceService : Service() {
             return
         }
 
+        // ===== 3. ОЖИДАНИЕ НОМЕРА КНИГИ =====
         if (awaitingBookNumber) {
             val lower = text.lowercase()
+            // Если сказали "отмена" или "стоп" — выходим из режима
+            if (lower.contains("отмена") || lower.contains("стоп") || lower.contains("хватит")) {
+                awaitingBookNumber = false
+                tts.beepOk()
+                tts.speakOutShort("Отменено")
+                startListening()
+                return
+            }
+            // Если сказали "дальше" — переходим к следующей
             if (lower.contains("дальше") || lower.contains("следующ") || lower.contains("далее")) {
                 val nextIndex = currentBookIndex + 1
                 if (nextIndex < foundBooks.size) {
@@ -411,6 +423,17 @@ class VoiceService : Service() {
                 return
             }
 
+            // Проверяем, не сказал ли пользователь новую команду
+            val bookCmd = settings.bookCommandWord.lowercase()
+            if (text.contains(bookCmd) || text.contains("включи") || text.contains("найди онлайн")) {
+                // Сбрасываем состояние и обрабатываем как новую команду
+                awaitingBookNumber = false
+                Log.e("MYVOSK", "Пользователь сказал новую команду в режиме книги, переключаюсь")
+                executeCommand(text)
+                return
+            }
+
+            // Иначе пытаемся распарсить номер
             awaitingBookNumber = false
             val number = parseNumber(text)
             if (number != null && number in 1..foundBooks.size) {
@@ -426,6 +449,7 @@ class VoiceService : Service() {
             return
         }
 
+        // ===== 4. ЧТЕНИЕ КОНТАКТОВ =====
         if (readingContacts || stopListeningActive) {
             val words = text.split(" ").toSet()
             val isStop = words.contains("стоп") || words.contains("отмена") ||
@@ -437,6 +461,7 @@ class VoiceService : Service() {
             return
         }
 
+        // ===== 5. МОНИТОРИНГ ЗВОНКА =====
         if (inCallMonitoring) {
             val words = text.split(" ").toSet()
             val isHangupPhrase = (words.contains("завершить") && words.contains("звонок")) ||
@@ -456,27 +481,7 @@ class VoiceService : Service() {
             return
         }
 
-        if (isAnyActiveMode()) {
-            if (text.contains("отмена") || text.contains("отменить") ||
-                text.contains("стоп") || text.contains("хватит")) {
-                choosingContact = false
-                awaitingName = false
-                awaitingAnswer = false
-                isActivated = false
-                readingContacts = false
-                awaitingBookNumber = false
-                awaitingBookQuery = false
-                contactList = emptyList()
-                contactIndex = 0
-                cancelSilenceTimeout()
-                cancelChoosingTimeout()
-                cancelBookQueryTimeout()
-                tts.beepOk()
-                tts.speakOutShort("Отменено")
-                return
-            }
-        }
-
+        // ===== 6. ВЫБОР КОНТАКТА =====
         if (awaitingName) {
             cancelSilenceTimeout()
             val nameOnly = text.split(" ").firstOrNull()?.trim() ?: text
@@ -548,6 +553,7 @@ class VoiceService : Service() {
             return
         }
 
+        // ===== 7. АКТИВАЦИЯ И КОМАНДЫ =====
         val activation = settings.activationWord
         val shutdownWord = settings.shutdownWord
 
@@ -587,13 +593,13 @@ class VoiceService : Service() {
         Log.e("MYVOSK", "executeCommand: '$command'")
         val calendar = Calendar.getInstance()
 
-        // Берем ключевое слово из настроек (по умолчанию "включи книгу")
         val bookCmd = settings.bookCommandWord.lowercase()
         
-        // Проверяем, сказал ли пользователь это слово
-        if (command.contains(bookCmd) || command.contains("найди онлайн")) {
+        // Поиск книг (включи книгу / найди онлайн)
+        if (command.contains(bookCmd) || command.contains("включи книгу") || command.contains("найди онлайн")) {
             var query = command
                 .replace(bookCmd, "")
+                .replace("включи книгу", "")
                 .replace("найди онлайн", "")
                 .replace("найти онлайн", "")
                 .replace("поиск онлайн", "")
