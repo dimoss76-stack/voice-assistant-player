@@ -5,10 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -24,7 +27,7 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var debugText: TextView
     private lateinit var bookTitle: TextView
     private lateinit var chapterTitle: TextView
-    private lateinit var btnPlayPause: TextView // Теперь TextView
+    private lateinit var btnPlayPause: TextView
 
     private var mp3Links: List<String> = emptyList()
     private var currentIndex = 0
@@ -33,7 +36,6 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var gestureDetector: GestureDetector
     private lateinit var audioManager: AudioManager
 
-    // Приемник команд от VoiceService (когда на паузе сказали "вперед" и т.д.)
     private val commandReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -47,10 +49,22 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_player)
 
-        // ЭКРАН НЕ ГАСНЕТ, ПОКА ОТКРЫТ ПЛЕЕР
+        // Показываем поверх блокировки и будим экран
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                        or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
+        // Экран не гаснет
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        setContentView(R.layout.activity_player)
 
         debugText = findViewById(R.id.debugText)
         bookTitle = findViewById(R.id.bookTitle)
@@ -88,6 +102,7 @@ class PlayerActivity : AppCompatActivity() {
             togglePlayPause()
         }
 
+        // Инициализация жестов
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean = true
 
@@ -117,17 +132,20 @@ class PlayerActivity : AppCompatActivity() {
             }
         })
 
-        // Перехватываем ВСЕ касания на корневом Layout
-        findViewById<LinearLayout>(R.id.rootLayout).setOnTouchListener { _, event ->
+        // Корневой Layout ловит все касания
+        val root = findViewById<LinearLayout>(R.id.rootLayout)
+        root.setOnTouchListener { _, event ->
             gestureDetector.onTouchEvent(event)
-            false
+            true
         }
 
-        findViewById<TextView>(R.id.btnBack).setOnClickListener {
-            finish()
-        }
+        // Делаем всех детей "прозрачными" для свайпов (кроме кликов)
+        disableTouchOnChildren(root)
 
-        // Регистрируем приемник команд
+        // Восстанавливаем клики для кнопок/текстов, где они нужны
+        btnPlayPause.setOnClickListener { togglePlayPause() }
+        findViewById<TextView>(R.id.btnBack).setOnClickListener { finish() }
+
         val filter = IntentFilter().apply {
             addAction("PLAYER_CMD_PLAY")
             addAction("PLAYER_CMD_NEXT")
@@ -135,6 +153,28 @@ class PlayerActivity : AppCompatActivity() {
             addAction("PLAYER_CMD_EXIT")
         }
         LocalBroadcastManager.getInstance(this).registerReceiver(commandReceiver, filter)
+    }
+
+    // Отключаем перехват касаний у детей (кроме прямых кликов)
+    private fun disableTouchOnChildren(view: View) {
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                val child = view.getChildAt(i)
+                // Кнопки оставляем кликабельными, но не перехватывающими свайп
+                if (child.id == R.id.btnPlayPause || child.id == R.id.btnBack) {
+                    // эти кнопки должны кликаться, но не мешать свайпу
+                    child.isClickable = true
+                    child.isFocusable = true
+                } else {
+                    child.isClickable = false
+                    child.isFocusable = false
+                    child.isLongClickable = false
+                    if (child is ViewGroup) {
+                        disableTouchOnChildren(child)
+                    }
+                }
+            }
+        }
     }
 
     private fun playCurrent() {
@@ -147,7 +187,7 @@ class PlayerActivity : AppCompatActivity() {
         player?.play()
         isPlaying = true
         btnPlayPause.text = "ПАУЗА"
-        notifyService("PLAYING") // Говорим сервису: книга играет, микрофон не нужен
+        notifyService("PLAYING")
     }
 
     private fun togglePlayPause() {
@@ -155,13 +195,12 @@ class PlayerActivity : AppCompatActivity() {
             player?.pause()
             isPlaying = false
             btnPlayPause.text = "ИГРАТЬ"
-            // Включаем микрофон, ждем команды "продолжить", "вперед", "назад", "выйти"
             notifyService("PAUSED")
         } else {
             player?.play()
             isPlaying = true
             btnPlayPause.text = "ПАУЗА"
-            notifyService("PLAYING") // Выключаем микрофон
+            notifyService("PLAYING")
         }
     }
 
@@ -203,7 +242,6 @@ class PlayerActivity : AppCompatActivity() {
         LocalBroadcastManager.getInstance(this).unregisterReceiver(commandReceiver)
         player?.release()
         player = null
-        // Сообщаем сервису, что плеер закрыт, возвращаем обычное слушание команд
         notifyService("CLOSED")
         super.onDestroy()
     }
