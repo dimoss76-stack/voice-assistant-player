@@ -1,125 +1,50 @@
 package com.accessible.audioplayer
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.ResultReceiver
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.EditText
-import android.widget.RadioButton
-import android.widget.RadioGroup
-import android.widget.TextView
+import android.widget.Switch
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var settings: VoiceSettings
-    private lateinit var statusText: TextView
-    private lateinit var checkShowCallButtons: CheckBox
-    private lateinit var checkShutdownEnabled: CheckBox
-    private lateinit var radioLayout: RadioGroup
-    private lateinit var radioVertical: RadioButton
-    private lateinit var radioHorizontal: RadioButton
-
-    private var editActivation: EditText? = null
-    private var editConfirm: EditText? = null
-    private var editShutdown: EditText? = null
-
-    private var currentFieldName: String = ""
-
-    private val resultReceiver = object : ResultReceiver(Handler()) {
-        override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
-            val field = resultData?.getString("FIELD") ?: return
-            val word = resultData.getString("WORD") ?: ""
-            if (field != currentFieldName) return
-            if (word.isNotEmpty()) {
-                val target = when (field) {
-                    "activation" -> editActivation
-                    "confirm" -> editConfirm
-                    "shutdown" -> editShutdown
-                    else -> null
-                }
-                target?.setText(word)
-                statusText.text = "Распознано: $word"
-            } else {
-                statusText.text = "Не расслышал, попробуйте ещё раз"
-            }
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
         settings = VoiceSettings(this)
 
-        editActivation = findViewById(R.id.editActivation)
-        editConfirm = findViewById(R.id.editConfirm)
-        editShutdown = findViewById(R.id.editShutdown)
-        val btnSave = findViewById<Button>(R.id.btnSave)
-        val btnBack = findViewById<Button>(R.id.btnBack)
-        statusText = findViewById(R.id.statusText)
-        checkShowCallButtons = findViewById(R.id.checkShowCallButtons)
-        checkShutdownEnabled = findViewById(R.id.checkShutdownEnabled)
-        radioLayout = findViewById(R.id.radioLayout)
-        radioVertical = findViewById(R.id.radioVertical)
-        radioHorizontal = findViewById(R.id.radioHorizontal)
+        val editActivation = findViewById<EditText>(R.id.editActivation)
+        val editConfirm = findViewById<EditText>(R.id.editConfirm)
+        val editBookCommand = findViewById<EditText>(R.id.editBookCommand)
+        val switchShutdown = findViewById<Switch>(R.id.switchShutdown)
+        
+        // Заполняем поля текущими значениями
+        editActivation.setText(settings.activationWord)
+        editConfirm.setText(settings.confirmWord)
+        editBookCommand.setText(settings.bookCommandWord)
+        switchShutdown.isChecked = settings.shutdownEnabled
 
-        editActivation?.setText(settings.activationWord)
-        editConfirm?.setText(settings.confirmWord)
-        editShutdown?.setText(settings.shutdownWord)
-        checkShowCallButtons.isChecked = settings.showCallButtons
-        checkShutdownEnabled.isChecked = settings.shutdownEnabled
-
-        if (settings.callButtonsLayout == 1) {
-            radioHorizontal.isChecked = true
-        } else {
-            radioVertical.isChecked = true
-        }
-
-        findViewById<Button>(R.id.btnRecordActivation).setOnClickListener { startRecordingFor("activation") }
-        findViewById<Button>(R.id.btnRecordConfirm).setOnClickListener { startRecordingFor("confirm") }
-        findViewById<Button>(R.id.btnRecordShutdown).setOnClickListener { startRecordingFor("shutdown") }
-
-        btnSave.setOnClickListener {
-            settings.activationWord = editActivation?.text.toString()
-            settings.confirmWord = editConfirm?.text.toString()
-            settings.shutdownWord = editShutdown?.text.toString()
-            settings.showCallButtons = checkShowCallButtons.isChecked
-            settings.shutdownEnabled = checkShutdownEnabled.isChecked
-            settings.callButtonsLayout = if (radioHorizontal.isChecked) 1 else 0
-            Toast.makeText(this, "Сохранено. Перезапустите помощника.", Toast.LENGTH_LONG).show()
+        // Сохранение при нажатии кнопки "Назад"
+        findViewById<Button>(R.id.btnBackSettings).setOnClickListener {
+            saveSettings(editActivation, editConfirm, editBookCommand, switchShutdown)
             finish()
         }
-
-        btnBack.setOnClickListener { finish() }
     }
 
-    private fun startRecordingFor(fieldName: String) {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 200)
-            return
-        }
-
-        currentFieldName = fieldName
-        statusText.text = "Говорите…"
-
-        val intent = Intent(this, VoiceService::class.java).apply {
-            action = "RECORD_WORD"
-            putExtra("FIELD", fieldName)
-            putExtra("RECEIVER", resultReceiver)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
+    private fun saveSettings(
+        editActivation: EditText,
+        editConfirm: EditText,
+        editBookCommand: EditText,
+        switchShutdown: Switch
+    ) {
+        settings.activationWord = editActivation.text.toString().ifBlank { "слушай" }
+        settings.confirmWord = editConfirm.text.toString().ifBlank { "говорите" }
+        settings.bookCommandWord = editBookCommand.text.toString().ifBlank { "включи книгу" }
+        settings.shutdownEnabled = switchShutdown.isChecked
+        Toast.makeText(this, "Настройки сохранены", Toast.LENGTH_SHORT).show()
     }
 }
