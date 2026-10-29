@@ -13,7 +13,7 @@
         android:layout_height="wrap_content"
         android:textColor="#00FF00"
         android:textSize="14sp"
-        android:maxLines="10"
+        android:maxLines="5"
         android:scrollbars="vertical"
         android:text="Ожидание..." />
 
@@ -38,7 +38,8 @@
         android:layout_marginTop="10dp"
         android:text="Глава 1" />
 
-    <Button
+    <!-- Вместо Button используем TextView, чтобы не перехватывал свайпы -->
+    <TextView
         android:id="@+id/btnPlayPause"
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -48,7 +49,11 @@
         android:text="ПАУЗА"
         android:textSize="40sp"
         android:textStyle="bold"
-        android:backgroundTint="#2E7D32" />
+        android:textColor="#FFFFFF"
+        android:background="#2E7D32"
+        android:gravity="center"
+        android:clickable="true"
+        android:focusable="true" />
 
     <TextView
         android:layout_width="match_parent"
@@ -58,12 +63,18 @@
         android:gravity="center"
         android:text="Свайп вправо — назад, влево — вперёд\nВверх/вниз — громкость\nГолосом: «Выйти»" />
 
-    <Button
+    <TextView
         android:id="@+id/btnBack"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="20dp"
         android:text="НАЗАД К СПИСКУ"
-        android:textSize="18sp" />
+        android:textSize="18sp"
+        android:textColor="#FFFFFF"
+        android:background="#333333"
+        android:gravity="center"
+        android:padding="12dp"
+        android:clickable="true"
+        android:focusable="true" />
 
 </LinearLayout>
