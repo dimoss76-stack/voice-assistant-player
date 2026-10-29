@@ -1,14 +1,12 @@
 package com.accessible.audioplayer
 
 import android.content.Context
-import android.os.Environment
 import android.util.Log
 import org.vosk.Model
 import org.vosk.Recognizer
 import org.vosk.android.RecognitionListener
 import org.vosk.android.SpeechService
 import org.vosk.android.StorageService
-import java.io.File
 import java.io.IOException
 
 class VoskEngine(
@@ -57,9 +55,7 @@ class VoskEngine(
                 android.media.AudioFormat.CHANNEL_IN_MONO,
                 android.media.AudioFormat.ENCODING_PCM_16BIT, bufferSize * 4
             )
-            if (audioRecord.state != android.media.AudioRecord.STATE_INITIALIZED) {
-                return ""
-            }
+            if (audioRecord.state != android.media.AudioRecord.STATE_INITIALIZED) return ""
             recognizer = Recognizer(m, 16000.0f)
             audioRecord.startRecording()
             val buffer = ShortArray(bufferSize)
@@ -120,6 +116,29 @@ class VoskEngine(
             }
         } catch (e: Exception) {
             Log.e("MYVOSK", "Ошибка startListening: ${e.message}", e)
+        }
+    }
+
+    // НОВАЯ ГРАММАТИКА ДЛЯ ПЛЕЕРА (на паузе)
+    fun startListeningForPlayer() {
+        try {
+            speechService?.stop()
+            speechService?.shutdown()
+            speechService = null
+            model?.let { m ->
+                val grammar = """[
+                    "продолжить", "продолжай", "играть",
+                    "вперед", "вперёд", "следующая",
+                    "назад", "предыдущая",
+                    "отмена", "выйти", "выход", "стоп"
+                ]"""
+                val rec = Recognizer(m, 16000.0f, grammar)
+                speechService = SpeechService(rec, 16000.0f)
+                speechService?.startListening(this)
+                Log.e("MYVOSK", "✅ Грамматика плеера активна (ожидание команд)")
+            }
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка startListeningForPlayer: ${e.message}", e)
         }
     }
 
