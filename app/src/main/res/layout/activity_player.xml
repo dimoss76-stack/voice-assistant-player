@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="#000000"
     android:padding="16dp">
 
-    <!-- Окно для отладки (текст) -->
     <TextView
         android:id="@+id/debugText"
         android:layout_width="match_parent"
@@ -38,7 +38,6 @@
         android:layout_marginTop="10dp"
         android:text="Глава 1" />
 
-    <!-- Огромная кнопка Плей/Пауза -->
     <Button
         android:id="@+id/btnPlayPause"
         android:layout_width="match_parent"
