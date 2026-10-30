@@ -60,6 +60,29 @@ class MainActivity : AppCompatActivity() {
         }
         layout.addView(btnSettings)
 
+        // НОВАЯ КНОПКА ПЛЕЕР
+        val btnPlayer = Button(this).apply {
+            text = "ПЛЕЕР"
+            textSize = 22f
+            setPadding(30, 60, 30, 60)
+        }
+        btnPlayer.setOnClickListener {
+            Log.e("MYVOSK", "MainActivity: нажата кнопка ПЛЕЕР")
+            val intent = Intent(this@MainActivity, VoiceService::class.java).apply {
+                action = "OPEN_PLAYER_FLOW"
+            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e("MYVOSK", "Ошибка запуска VoiceService: ${e.message}", e)
+            }
+        }
+        layout.addView(btnPlayer)
+
         val spacer = TextView(this).apply { text = ""; height = 100 }
         layout.addView(spacer)
 
@@ -112,7 +135,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 4. Разрешение "Поверх других окон" (для запуска плеера с блокировки)
+        // 4. Разрешение "Поверх других окон"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (!Settings.canDrawOverlays(this)) {
                 val intent = Intent(
