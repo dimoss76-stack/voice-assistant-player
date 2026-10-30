@@ -207,7 +207,7 @@ class BooksController(private val service: VoiceService) {
         }.start()
     }
 
-    private fun speakBooksList(startIndex: Int) {
+        private fun speakBooksList(startIndex: Int) {
         val books = service.foundBooks
         if (startIndex >= books.size) {
             service.awaitingBookNumber = false
@@ -223,6 +223,19 @@ class BooksController(private val service: VoiceService) {
 
         service.awaitingBookNumber = true
         tts.speakOut("$ordinal — ${book.title}, автор ${book.author}.$cycleInfo$desc Скажите номер книги, или дальше.")
+
+        // После озвучки — бип и переключаем Vosk в грамматику номера
+        val delayAfterSpeech = (tts.ignoreUntil - System.currentTimeMillis()) + 500L
+        handler.postDelayed({
+            if (!service.awaitingBookNumber) return@postDelayed
+            tts.beepListen()
+            handler.postDelayed({
+                if (!service.awaitingBookNumber) return@postDelayed
+                vosk.startListeningForBookNumber()
+                tts.setIgnoreUntil(System.currentTimeMillis() + 500L)
+                Log.e("MYVOSK", "speakBooksList: слушаю номер книги")
+            }, 700L)
+        }, delayAfterSpeech.coerceAtLeast(2500L))
     }
 
     // ==================== ОЖИДАНИЕ НОМЕРА КНИГИ ====================
