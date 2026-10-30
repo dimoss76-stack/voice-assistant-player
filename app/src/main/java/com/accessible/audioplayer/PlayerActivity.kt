@@ -135,13 +135,8 @@ class PlayerActivity : AppCompatActivity() {
             }
         })
 
-        val root = findViewById<LinearLayout>(R.id.rootLayout)
-        root.setOnTouchListener { _, event ->
-            gestureDetector.onTouchEvent(event)
-            true
-        }
-
-        disableTouchOnChildren(root)
+               // Свайпы ловим на уровне Activity — до того, как кнопки их перехватят
+              // (см. override fun dispatchTouchEvent ниже)
 
         btnPlayPause.setOnClickListener { togglePlayPause() }
         findViewById<TextView>(R.id.btnBack).setOnClickListener { finish() }
@@ -155,25 +150,12 @@ class PlayerActivity : AppCompatActivity() {
         LocalBroadcastManager.getInstance(this).registerReceiver(commandReceiver, filter)
     }
 
-    private fun disableTouchOnChildren(view: View) {
-        if (view is ViewGroup) {
-            for (i in 0 until view.childCount) {
-                val child = view.getChildAt(i)
-                if (child.id == R.id.btnPlayPause || child.id == R.id.btnBack) {
-                    child.isClickable = true
-                    child.isFocusable = true
-                } else {
-                    child.isClickable = false
-                    child.isFocusable = false
-                    child.isLongClickable = false
-                    if (child is ViewGroup) {
-                        disableTouchOnChildren(child)
-                    }
-                }
-            }
+      override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (::gestureDetector.isInitialized) {
+            gestureDetector.onTouchEvent(ev)
         }
+        return super.dispatchTouchEvent(ev)
     }
-
     private fun playCurrent() {
         val link = mp3Links.getOrNull(currentIndex) ?: return
         chapterTitle.text = "Глава ${currentIndex + 1}"
