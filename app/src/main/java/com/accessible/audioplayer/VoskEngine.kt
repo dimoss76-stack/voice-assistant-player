@@ -119,7 +119,24 @@ class VoskEngine(
         }
     }
 
-    // НОВАЯ ГРАММАТИКА ДЛЯ ПЛЕЕРА (на паузе)
+    // НОВОЕ: Для вопроса "Продолжить воспроизведение?"
+    fun startListeningForPlayback() {
+        try {
+            speechService?.stop()
+            speechService?.shutdown()
+            speechService = null
+            model?.let { m ->
+                val grammar = """["да", "нет", "конечно", "отмена"]"""
+                val rec = Recognizer(m, 16000.0f, grammar)
+                speechService = SpeechService(rec, 16000.0f)
+                speechService?.startListening(this)
+                Log.e("MYVOSK", "✅ Слушаю ответ да/нет (продолжить?)")
+            }
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка startListeningForPlayback: ${e.message}", e)
+        }
+    }
+
     fun startListeningForPlayer() {
         try {
             speechService?.stop()
