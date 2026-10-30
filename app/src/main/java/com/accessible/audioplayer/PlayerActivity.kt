@@ -9,8 +9,6 @@ import android.os.Build
 import android.os.Bundle
 import android.view.GestureDetector
 import android.view.MotionEvent
-import android.view.View
-import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -32,9 +30,12 @@ class PlayerActivity : AppCompatActivity() {
     private var currentIndex = 0
     private var isPlaying = false
     private lateinit var settings: VoiceSettings
-    private var swipeHandled = false
+
     private lateinit var gestureDetector: GestureDetector
     private lateinit var audioManager: AudioManager
+
+    // Флаг: свайп распознан — ACTION_UP нужно поглотить, чтобы кнопка не нажалась
+    private var swipeHandled = false
 
     private val commandReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -109,7 +110,7 @@ class PlayerActivity : AppCompatActivity() {
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean = true
 
-                        override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
                 if (e1 == null) return false
                 val diffX = e2.x - e1.x
                 val diffY = e2.y - e1.y
@@ -137,11 +138,11 @@ class PlayerActivity : AppCompatActivity() {
                 }
                 return false
             }
+        })
 
-               // Свайпы ловим на уровне Activity — до того, как кнопки их перехватят
-              // (см. override fun dispatchTouchEvent ниже)
+        // Свайпы ловим на уровне Activity — до того, как кнопки их перехватят
+        // (см. override fun dispatchTouchEvent ниже)
 
-        btnPlayPause.setOnClickListener { togglePlayPause() }
         findViewById<TextView>(R.id.btnBack).setOnClickListener { finish() }
 
         val filter = IntentFilter().apply {
@@ -153,7 +154,7 @@ class PlayerActivity : AppCompatActivity() {
         LocalBroadcastManager.getInstance(this).registerReceiver(commandReceiver, filter)
     }
 
-          override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (::gestureDetector.isInitialized) {
             gestureDetector.onTouchEvent(ev)
         }
@@ -163,20 +164,19 @@ class PlayerActivity : AppCompatActivity() {
             if (ev.action == MotionEvent.ACTION_UP ||
                 ev.action == MotionEvent.ACTION_CANCEL) {
                 swipeHandled = false
-                return true  // не передаём в super → кнопка не нажмётся
+                return true
             }
-            // ACTION_DOWN / ACTION_MOVE после свайпа — тоже поглощаем
             return true
         }
 
         return super.dispatchTouchEvent(ev)
     }
+
     private fun playCurrent() {
         val link = mp3Links.getOrNull(currentIndex) ?: return
         chapterTitle.text = "Глава ${currentIndex + 1}"
         debugText.text = "Играю: ${link}\nГлава ${currentIndex + 1} из ${mp3Links.size}"
 
-        // Сохраняем текущий индекс
         settings.lastBookIndex = currentIndex
 
         player?.setMediaItem(MediaItem.fromUri(link))
