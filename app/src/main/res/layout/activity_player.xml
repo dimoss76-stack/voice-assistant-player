@@ -5,6 +5,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="#000000"
+    android:keepScreenOn="true"
     android:padding="16dp">
 
     <TextView
@@ -38,7 +39,6 @@
         android:layout_marginTop="10dp"
         android:text="Глава 1" />
 
-    <!-- Вместо Button используем TextView, чтобы не перехватывал свайпы -->
     <TextView
         android:id="@+id/btnPlayPause"
         android:layout_width="match_parent"
