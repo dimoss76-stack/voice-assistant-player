@@ -237,7 +237,33 @@ class VoskEngine(
             Log.e("MYVOSK", "Ошибка startListeningForStop: ${e.message}", e)
         }
     }
-
+        fun startListeningForBookNumber() {
+        try {
+            speechService?.stop()
+            speechService?.shutdown()
+            speechService = null
+            model?.let { m ->
+                val grammar = """[
+                    "первая", "вторая", "третья", "четвёртая", "четвертая",
+                    "пятая", "шестая", "седьмая", "восьмая", "девятая", "десятая",
+                    "первый", "второй", "третий", "четвертый", "пятый",
+                    "шестой", "седьмой", "восьмой", "девятый", "десятый",
+                    "один", "два", "три", "четыре", "пять",
+                    "шесть", "семь", "восемь", "девять", "десять",
+                    "1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
+                    "дальше", "далее", "следующая", "следующую",
+                    "отмена", "стоп", "хватит",
+                    "включи", "книгу", "найди", "онлайн"
+                ]"""
+                val rec = Recognizer(m, 16000.0f, grammar)
+                speechService = SpeechService(rec, 16000.0f)
+                speechService?.startListening(this)
+                Log.e("MYVOSK", "✅ Грамматика номера книги активна")
+            }
+        } catch (e: Exception) {
+            Log.e("MYVOSK", "Ошибка startListeningForBookNumber: ${e.message}", e)
+        }
+    }
     fun stop() {
         try {
             speechService?.stop()
