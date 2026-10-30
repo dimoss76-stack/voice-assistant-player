@@ -4,10 +4,6 @@ import android.content.Intent
 import android.util.Log
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 
-/**
- * Вся логика книг и плеера.
- * Работает поверх VoiceService — использует его поля и методы.
- */
 class BooksController(private val service: VoiceService) {
 
     private val handler get() = service.handler
@@ -129,7 +125,6 @@ class BooksController(private val service: VoiceService) {
             .replace("поиск онлайн", "")
             .trim()
 
-        // Если есть прогресс — сначала "Продолжить?"
         if (settings.lastBookLinks.isNotEmpty() && settings.lastBookTitle.isNotEmpty()) {
             service.awaitingPlaybackAnswer = true
             tts.beepListen()
@@ -139,8 +134,9 @@ class BooksController(private val service: VoiceService) {
                     if (service.awaitingPlaybackAnswer) {
                         tts.beepListen()
                         vosk.startListeningForPlayback()
-                        tts.setIgnoreUntil(System.currentTimeMillis() + 500
-                                                               }
+                        tts.setIgnoreUntil(System.currentTimeMillis() + 500L)
+                        service.startPlaybackAnswerTimeout()
+                    }
                 }, 1800L)
             }, 200L)
             return
@@ -170,8 +166,7 @@ class BooksController(private val service: VoiceService) {
             }
         }.start()
     }
-
-    // ==================== ПОИСК КНИГ ====================
+        // ==================== ПОИСК КНИГ ====================
 
     fun handleBookQuery(text: String) {
         service.cancelBookQueryTimeout()
