@@ -32,7 +32,7 @@ class PlayerActivity : AppCompatActivity() {
     private var currentIndex = 0
     private var isPlaying = false
     private lateinit var settings: VoiceSettings
-
+    private var swipeHandled = false
     private lateinit var gestureDetector: GestureDetector
     private lateinit var audioManager: AudioManager
 
@@ -109,31 +109,34 @@ class PlayerActivity : AppCompatActivity() {
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean = true
 
-            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                        override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
                 if (e1 == null) return false
                 val diffX = e2.x - e1.x
                 val diffY = e2.y - e1.y
 
                 if (Math.abs(diffX) > Math.abs(diffY)) {
                     if (diffX > 150) {
+                        swipeHandled = true
                         previousChapter()
                         return true
                     } else if (diffX < -150) {
+                        swipeHandled = true
                         nextChapter()
                         return true
                     }
                 } else {
                     if (diffY < -150) {
+                        swipeHandled = true
                         changeVolume(true)
                         return true
                     } else if (diffY > 150) {
+                        swipeHandled = true
                         changeVolume(false)
                         return true
                     }
                 }
                 return false
             }
-        })
 
                // Свайпы ловим на уровне Activity — до того, как кнопки их перехватят
               // (см. override fun dispatchTouchEvent ниже)
@@ -150,10 +153,22 @@ class PlayerActivity : AppCompatActivity() {
         LocalBroadcastManager.getInstance(this).registerReceiver(commandReceiver, filter)
     }
 
-      override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+          override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (::gestureDetector.isInitialized) {
             gestureDetector.onTouchEvent(ev)
         }
+
+        // Если свайп распознан — поглощаем ACTION_UP, чтобы кнопка не получила клик
+        if (swipeHandled) {
+            if (ev.action == MotionEvent.ACTION_UP ||
+                ev.action == MotionEvent.ACTION_CANCEL) {
+                swipeHandled = false
+                return true  // не передаём в super → кнопка не нажмётся
+            }
+            // ACTION_DOWN / ACTION_MOVE после свайпа — тоже поглощаем
+            return true
+        }
+
         return super.dispatchTouchEvent(ev)
     }
     private fun playCurrent() {
