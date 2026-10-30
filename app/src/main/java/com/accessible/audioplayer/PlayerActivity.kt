@@ -7,7 +7,6 @@ import android.content.IntentFilter
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
@@ -32,6 +31,7 @@ class PlayerActivity : AppCompatActivity() {
     private var mp3Links: List<String> = emptyList()
     private var currentIndex = 0
     private var isPlaying = false
+    private lateinit var settings: VoiceSettings
 
     private lateinit var gestureDetector: GestureDetector
     private lateinit var audioManager: AudioManager
@@ -50,7 +50,6 @@ class PlayerActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Показываем поверх блокировки и будим экран
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -61,10 +60,10 @@ class PlayerActivity : AppCompatActivity() {
                         or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
             )
         }
-        // Экран не гаснет
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         setContentView(R.layout.activity_player)
+        settings = VoiceSettings(this)
 
         debugText = findViewById(R.id.debugText)
         bookTitle = findViewById(R.id.bookTitle)
@@ -75,10 +74,15 @@ class PlayerActivity : AppCompatActivity() {
 
         val title = intent.getStringExtra("BOOK_TITLE") ?: "Неизвестная книга"
         val links = intent.getStringArrayListExtra("MP3_LINKS") ?: arrayListOf()
+        val startIndex = intent.getIntExtra("START_INDEX", 0)
 
         bookTitle.text = title
         mp3Links = links
-        currentIndex = 0
+        currentIndex = startIndex
+
+        // Сохраняем текущую книгу в настройки
+        settings.lastBookTitle = title
+        settings.lastBookLinks = links
 
         if (mp3Links.isEmpty()) {
             debugText.text = "Нет ссылок для воспроизведения"
@@ -102,7 +106,6 @@ class PlayerActivity : AppCompatActivity() {
             togglePlayPause()
         }
 
-        // Инициализация жестов
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean = true
 
@@ -132,17 +135,14 @@ class PlayerActivity : AppCompatActivity() {
             }
         })
 
-        // Корневой Layout ловит все касания
         val root = findViewById<LinearLayout>(R.id.rootLayout)
         root.setOnTouchListener { _, event ->
             gestureDetector.onTouchEvent(event)
             true
         }
 
-        // Делаем всех детей "прозрачными" для свайпов (кроме кликов)
         disableTouchOnChildren(root)
 
-        // Восстанавливаем клики для кнопок/текстов, где они нужны
         btnPlayPause.setOnClickListener { togglePlayPause() }
         findViewById<TextView>(R.id.btnBack).setOnClickListener { finish() }
 
@@ -155,14 +155,11 @@ class PlayerActivity : AppCompatActivity() {
         LocalBroadcastManager.getInstance(this).registerReceiver(commandReceiver, filter)
     }
 
-    // Отключаем перехват касаний у детей (кроме прямых кликов)
     private fun disableTouchOnChildren(view: View) {
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
                 val child = view.getChildAt(i)
-                // Кнопки оставляем кликабельными, но не перехватывающими свайп
                 if (child.id == R.id.btnPlayPause || child.id == R.id.btnBack) {
-                    // эти кнопки должны кликаться, но не мешать свайпу
                     child.isClickable = true
                     child.isFocusable = true
                 } else {
@@ -181,6 +178,9 @@ class PlayerActivity : AppCompatActivity() {
         val link = mp3Links.getOrNull(currentIndex) ?: return
         chapterTitle.text = "Глава ${currentIndex + 1}"
         debugText.text = "Играю: ${link}\nГлава ${currentIndex + 1} из ${mp3Links.size}"
+
+        // Сохраняем текущий индекс
+        settings.lastBookIndex = currentIndex
 
         player?.setMediaItem(MediaItem.fromUri(link))
         player?.prepare()
